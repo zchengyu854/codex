@@ -1,6 +1,6 @@
 # 阶段 5：补齐终端契约覆盖
 
-状态：第一段（Agent 配置表单）、第二段（连接自检）、第三段（用户约束发布）与第四段（任务结果查看）完成并验证；`docs/core-api.md` 的 19 个方法已全部接入。剩余段落见文末“后续段落”。
+状态：第一段（Agent 配置表单）、第二段（连接自检）、第三段（用户约束发布）与第四段（任务结果查看）完成并验证，`docs/core-api.md` 的 19 个方法已全部接入；第五段（输入编辑）作为最后一条遗留体验一并完成。本阶段没有未开始段落。
 
 ## 背景
 
@@ -49,6 +49,16 @@
 - 交互：`PgUp`/`PgDn` 滚动（顶部截断），`Ctrl+R` 手动重取，`Esc` 关闭；关闭时清空轮询定时器。宿主报错（如任务不存在）会停止轮询并在提示行回显宿主信息。
 - 读取附件沿用 `file diff` 审查的既有模式：客户端**只读**本机文件，不回写、不移动、不解释内容，也不把内容作为请求参数发给宿主。
 
+## 第五段：输入编辑（光标与命令历史）
+
+这一段不含契约项，是阶段 5 遗留的最后一条体验补齐：输入行原先只支持末尾追加与退格。
+
+- 光标：`←`/`→` 按字符移动（`cursor` 是 `input` 里的 UTF-8 字节偏移，始终落在字符边界上），`Home`/`End` 跳到行首/行尾，`Backspace`/`Delete` 分别删除光标前/后的**一个完整字符**。插入、粘贴都在光标处发生，因此中文输入不会被截断。
+- `End` 的复用：窗格历史滚动非零时 `End` 仍然“回到最新”（保持原有语义与提示行文案），否则把光标移到行尾；`PgUp`/`PgDn` 只滚动历史，不移动光标。
+- 命令历史：`Enter` 派发成功时把该行记入窗格自己的 `sent`（每个窗格最多 100 条，相邻重复不重复记录）；`Up` 逐条向前回看，首次回看会先把当前草稿暂存起来，`Down` 走回最新之后把草稿原样还回来。历史按窗格隔离，重取/切焦点不会串台。
+- 渲染：输入窗口优先锚定行尾（与终端习惯一致），只有光标落在窗口左侧之外时才改为从光标开始显示，保证光标永远可见；光标列由窗口内光标之前的文本宽度算出，宽字符（CJK）按 2 列累计。`input` 与 `cursor` 是公开字段，所有编辑入口都先把光标夹回合法边界，避免任何路径 panic。
+- 输入上限不变（4096 字节），达到上限时提示“请分段输入”。
+
 ## 运行
 
 ```sh
@@ -57,7 +67,7 @@ cargo run  --locked --manifest-path collab/Cargo.toml -p codex-collab-tui -- \
   --state /absolute/path/to/state --session <会话 ID>
 ```
 
-在终端内：`Ctrl+N` 新建会话 → `Tab` 选窗格 → `Ctrl+A` 配置该窗格的 Agent（并 `Ctrl+K` 设置密钥）→ `Ctrl+T` 自检 → 输入 Enter 派发任务；`Ctrl+U` 可随时发布用户约束，`Ctrl+O` 查看任务结果，`F3` 查看共享记录。
+在终端内：`Ctrl+N` 新建会话 → `Tab` 选窗格 → `Ctrl+A` 配置该窗格的 Agent（并 `Ctrl+K` 设置密钥）→ `Ctrl+T` 自检 → 输入 Enter 派发任务（输入行支持 `←`/`→`/`Home`/`End` 光标编辑与 `Up`/`Down` 命令历史）；`Ctrl+U` 可随时发布用户约束，`Ctrl+O` 查看任务结果，`F3` 查看共享记录。
 
 ## 协议映射（新增部分）
 
@@ -97,14 +107,18 @@ python3 collab/scripts/probe_terminal_live.py collab/target/debug/codex-collab-t
 collab/scripts/stage5_evidence.sh   # 重放以上全部步骤并重写 evidence/stage-5-tests.log
 ```
 
-- 单元测试新增：配置表单的提交与字段映射、空模型/非法 URL/越界预算的拒绝与焦点跳转、协议切换与字段循环、Esc 取消、按字段清洗的粘贴；`build_agent_form` 对空窗格生成合法 UUID、对已有 Agent 预填 id/角色/模型/协议/预算；Base URL 校验与宿主规则逐条对照；连接自检的排他性（未配置窗格拒绝）、`probe_outcome` 对进行中/通过/未通过/待调度的分支；约束表单的类型前后循环与回绕、空内容拒绝、**空格属于正文而非切换键**、粘贴清洗与超限、Esc 取消；结果查看的打开动作、PgUp/PgDn 滚动与顶部截断、`Ctrl+R` 重取、Esc 关闭；四个模态的渲染与底部键位提示。
+- 单元测试新增：配置表单的提交与字段映射、空模型/非法 URL/越界预算的拒绝与焦点跳转、协议切换与字段循环、Esc 取消、按字段清洗的粘贴；`build_agent_form` 对空窗格生成合法 UUID、对已有 Agent 预填 id/角色/模型/协议/预算；Base URL 校验与宿主规则逐条对照；连接自检的排他性（未配置窗格拒绝）、`probe_outcome` 对进行中/通过/未通过/待调度的分支；约束表单的类型前后循环与回绕、空内容拒绝、**空格属于正文而非切换键**、粘贴清洗与超限、Esc 取消；结果查看的打开动作、PgUp/PgDn 滚动与顶部截断、`Ctrl+R` 重取、Esc 关闭；输入编辑的光标插入/删除、多字节字符按整字删除、行首行尾边界、历史前后回看与草稿恢复、相邻重复去重、每个窗格 100 条上限与按窗格隔离、`input_window` 的尾部锚定/光标重锚定/越界光标；五个模态的渲染与底部键位提示。
 - 底部键位提示拆成两行后新增宽度回归：以 132 列演示帧渲染，断言 `Ctrl+A 配置`…`Ctrl+Q 退出` 全部完整可见（`Ctrl+Q` 移到第一行，第二行改为纯任务键位）；小尺寸遍历新增结果模态，覆盖 `scroll = usize::MAX` 的截断路径。
 - 真实宿主冒烟 `real_host_drives_session_and_agent_listing` 增补：`agent/list` 返回 `contextBytes`；非 UUID 的 `id` 与越界 `contextBytes` 被拒绝；`agent/testConnection` 返回探针任务且 `connectionResult` 在无执行时返回 `verified=false` 与空能力列表；非探针任务与未知任务均被 `agent/connectionResult` 拒绝；`event/publish` 返回递增的 `revision`，且 `decision` 等非用户类型被拒绝；`task/output` 恒返回 `taskId`/`result`/`draft` 三键（`draft` 为 `null` 或带 `text`），未知任务被拒绝。响应辅助函数改为跳过 `collab/update` 通知，避免任务通知与响应乱序造成误判。
-- 伪终端脚本 `probe_terminal_live.py` 增补：`Ctrl+A` 在已配置窗格预填现有 Agent（编辑路径）；`Tab` 到工作窗格后用表单新增 Agent（客户端生成 UUID、宿主校验端点，窗格渲染新模型与预算）；`Ctrl+T` 排队连接探针并确认客户端上报排队；`Ctrl+O` 打开探针任务的结果模态并断言标题渲染，`Esc` 关闭；`Ctrl+U` 切换类型到 `suggestion`、输入含空格文本并发布，再按 `F3` 确认共享记录出现 `[建议] …`——这一条同时锁住“类型选择器 → 事件 kind”与“空格不被吞掉”两个行为。
-- 本次工作区回归 **89 passed / 0 failed / 2 ignored**（core 32 / tui 57）；tui `--include-ignored` **58 passed**（含真实宿主冒烟）；Clippy（警告视为错误）与格式检查通过；demo 与 live 伪终端冒烟通过。原始日志见 `../evidence/stage-5-tests.log`，结构化结果见 `../evidence/stage-5-summary.json`；日志由 `scripts/stage5_evidence.sh` 一条命令重放（构建 → 两组测试 → clippy → fmt → 两个 pty 冒烟 → 两张快照）。
+- 伪终端脚本 `probe_terminal.py` 增补：粘贴 `smoke-message` 后按两次 `←` 把光标移到 `ge` 之前再输入 `X`，回车后断言窗格回显的是 `smoke-messaXge`——这一条直接锁住“按键确实按字符粒度移动光标”，而不只是末尾追加；`probe_terminal_live.py` 增补：`Ctrl+A` 在已配置窗格预填现有 Agent（编辑路径）；`Tab` 到工作窗格后用表单新增 Agent（客户端生成 UUID、宿主校验端点，窗格渲染新模型与预算）；`Ctrl+T` 排队连接探针并确认客户端上报排队；`Ctrl+O` 打开探针任务的结果模态并断言标题渲染，`Esc` 关闭；`Ctrl+U` 切换类型到 `suggestion`、输入含空格文本并发布，再按 `F3` 确认共享记录出现 `[建议] …`——这一条同时锁住“类型选择器 → 事件 kind”与“空格不被吞掉”两个行为。
+- 本次工作区回归 **93 passed / 0 failed / 2 ignored**（core 32 / tui 61）；tui `--include-ignored` **62 passed**（含真实宿主冒烟）；Clippy（警告视为错误）与格式检查通过；demo 与 live 伪终端冒烟通过。原始日志见 `../evidence/stage-5-tests.log`，结构化结果见 `../evidence/stage-5-summary.json`；日志由 `scripts/stage5_evidence.sh` 一条命令重放（构建 → 两组测试 → clippy → fmt → 两个 pty 冒烟 → 两张快照）。
 - 界面留证：`scripts/snapshot_terminal.py` 把伪终端画面重建成文本快照（终端只按差分输出单元格，原始字节省略大量已存在的空格，无法直接判读）。演示画面快照见 `../evidence/stage-5-demo-screen.txt`，结果模态快照见 `../evidence/stage-5-output-screen.txt`（live 模式跑出真实的探针任务失败结果）；live 模式可用 `--keys` 驱动到任意模态再截图。
 - 快照器本身的一条宽字形修正：写双宽字符的第二格时会清理**上一帧**遗留的“首格”标记，否则下一次写入会把新字符的续格清成空格（表现为 CJK 词中间多出一个空格）。结果模态标题因此从 `摘 要` 恢复为 `摘要`。
 
-## 后续段落（未开始）
+## 阶段收尾
 
-1. **输入编辑增强**：光标编辑与命令历史（当前仅末尾追加与退格）。
+19/19 契约方法全部可从终端触达，阶段 5 无未开始段落。后续若要继续，建议方向（不属于本阶段）：
+
+1. 真实 API 与 Keychain 的交互式读写验证（当前证据全部标注 `real_api_tested: false`）。
+2. 多行输入与更完整的行编辑（如 `Ctrl+W` 删词、`Ctrl+A`/`Ctrl+E` 行首行尾；当前 `Ctrl+A`/`Ctrl+E` 已被 Agent 配置与编码开关占用）。
+3. 任务结果的差异高亮与附件内联预览（当前结果模态只显示附件路径与限长正文）。

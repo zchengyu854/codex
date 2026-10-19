@@ -32,6 +32,7 @@ const HELP: &str = "用法:
       没有任何会话且给出 --repository 时按其创建（需至少一条 --validation）。
 
 操作：Tab/Shift+Tab 焦点 · F2 放大 · F3 共享记录 · Ctrl+R 刷新
+      输入行：←/→ 移动光标 · Home/End 行首行尾 · Backspace/Delete 删除 · Up/Down 输入历史
       Ctrl+A 配置 Agent · Ctrl+T 连接自检 · Ctrl+U 用户约束 · Ctrl+K 密钥 · Ctrl+E 编码开关
       Ctrl+O 任务输出（摘要、公开草稿与附件）
       Ctrl+G 审查集成 · Ctrl+P 压缩上下文 · Ctrl+N 新建会话

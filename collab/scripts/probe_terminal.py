@@ -36,9 +36,16 @@ try:
     drain(0.6)
     for name in (b'planner-model', b'code-model', b'review-model', b'fast-model'):
         assert name in output, name
-    os.write(master, b'\t\x1b[200~smoke-message\x1b[201~\r')
+    os.write(master, b'\t\x1b[200~smoke-message\x1b[201~')
     drain()
-    assert b'smoke-message' in output
+    assert b'smoke-message' in output, 'the bracketed paste did not reach the input line'
+    # Two Left presses put the caret before the trailing "ge"; the typed X must land there, and Enter
+    # then echoes the edited line, so the demo proves caret editing and not just append-only input.
+    os.write(master, b'\x1b[D\x1b[DX')
+    drain()
+    os.write(master, b'\r')
+    drain()
+    assert b'smoke-messaXge' in output, 'caret editing did not change the dispatched line'
     os.write(master, b'\x03')
     drain()
     os.write(master, b'\x11')
@@ -50,7 +57,7 @@ try:
     assert termios.tcgetattr(slave) == before, 'terminal input modes were not restored'
     assert b'\x1b[?1049l' in output, 'alternate screen was not restored'
     assert b'\x1b[?2004l' in output, 'bracketed paste was not disabled'
-    print('PASS: four panes, paste/send, stop, confirmed quit, terminal restoration, non-TTY rejection')
+    print('PASS: four panes, paste/send, caret editing, stop, confirmed quit, terminal restoration, non-TTY rejection')
 finally:
     if process.poll() is None:
         process.kill()

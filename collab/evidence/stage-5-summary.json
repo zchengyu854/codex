@@ -4,10 +4,11 @@
     "5-1 agent configuration form (agent/configure)",
     "5-2 connection self-check (agent/testConnection / agent/connectionResult)",
     "5-3 user constraint publication (event/publish)",
-    "5-4 task output view (task/output)"
+    "5-4 task output view (task/output)",
+    "5-5 input editing (caret + command history; no contract method)"
   ],
   "date": "2026-10-19",
-  "scope": "terminal client contract coverage: configure an agent from the terminal, run a capability self-check, publish user constraints, and read a task's persisted result, closing the create-session -> configure-agents -> verify-endpoint -> steer-the-session -> read-the-result loop",
+  "scope": "terminal client contract coverage: configure an agent from the terminal, run a capability self-check, publish user constraints, and read a task's persisted result, closing the create-session -> configure-agents -> verify-endpoint -> steer-the-session -> read-the-result loop; plus the last leftover UX item, single-line caret editing and per-pane command history",
   "contract_coverage": {
     "core_methods_implemented": 19,
     "tui_methods_before": 14,
@@ -52,24 +53,32 @@
     "keys": "PgUp/PgDn scroll, Ctrl+R re-reads, Esc closes and clears the poll deadline; a host error stops polling and is echoed verbatim",
     "attachment_reads": "the client only reads files the host itself wrote (full result / file diff); paths come from artifact events, never from user input, and the client never writes, moves or lists directories"
   },
+  "input_editing": {
+    "scope": "no contract method; the pane input line was append-only (insert at the end plus backspace)",
+    "caret": "Left/Right move by one whole character, Home/End jump to the line edges, Backspace/Delete remove one whole character before/under the caret; insert and paste happen at the caret, so multibyte text is never split. The caret is a UTF-8 byte offset and every edit entry point clamps it back onto a char boundary, so public-field writes cannot panic the renderer",
+    "end_key": "End keeps its existing 'back to the live tail' meaning while the pane history is scrolled, and moves the caret otherwise; PgUp/PgDn only scroll history",
+    "history": "Enter remembers the dispatched line per pane (max 100, immediate repeats skipped); Up walks back, stashing the in-progress draft on the first step, and Down restores that draft after the newest entry. History never leaks across panes or focus changes",
+    "render": "the input window is anchored at the end (shell-like) and only re-anchors at the caret when the caret would otherwise be off-screen; the cursor column is the display width of the text between the window start and the caret, counting CJK glyphs as two columns",
+    "limit": "unchanged 4096 bytes; hitting it still says 请分段输入"
+  },
   "suite": {
-    "passed": 89,
+    "passed": 93,
     "failed": 0,
     "ignored": 2,
     "groups": {
       "core": 32,
-      "tui": 57
+      "tui": 61
     },
     "ignored_reason": "core runtime_e2e needs installed Codex; tui real-host smoke needs a built codex-collab-core"
   },
   "opt_in": {
-    "tui_include_ignored_passed": 58,
+    "tui_include_ignored_passed": 62,
     "real_host_smoke": "passed: session/create, agent/configure, agent/list (carries contextBytes), task/list, approval/list, task/get, task/integrate, context/compact, agent/testConnection, agent/connectionResult, event/publish, task/output; non-UUID agent id and out-of-range contextBytes rejected; connectionResult reports verified=false with empty capabilities and rejects non-probe and unknown tasks; event/publish returns an increasing revision and rejects non-user kinds such as decision; task/output always returns taskId/result/draft (draft null or carrying text) and rejects unknown tasks; unknown approval/task ids and stale compaction revisions fail closed, empty summary rejected",
     "core_e2e_rerun": false
   },
   "format_check": "passed",
   "clippy_warnings_as_errors": "passed",
-  "pty_demo_smoke": "passed: four panes, paste/send, stop, confirmed quit, terminal restoration, non-TTY rejection",
+  "pty_demo_smoke": "passed: four panes, paste/send, caret editing (two Left presses then X yields `smoke-messaXge` on dispatch), stop, confirmed quit, terminal restoration, non-TTY rejection",
   "pty_live_smoke": "passed: seeded real session+agent via line protocol; Ctrl+A prefilled the seeded coordinator (edit path); Tabbed to a worker pane and added a second agent through the form; Ctrl+T queued a connection probe; Ctrl+O opened the probe task's output view and rendered its title, Esc closed it; Ctrl+U selected suggestion, typed text containing spaces, published, and F3 confirmed `[建议] keep … stable` in the shared records; coding toggle, review/compaction/create routing; masked credential form; confirmed quit and terminal restoration",
   "pane_status_row": "shows `<baseUrl> / <protocol> · <contextBytes> 字节预算`",
   "footer": "key hints on two lines above the feedback line: pane/global keys (Tab/F2/F3/Ctrl+A/Ctrl+Q) then task keys (Ctrl+T/Ctrl+U/Ctrl+O/Ctrl+E/Ctrl+G/Ctrl+P/Ctrl+N/Ctrl+K/Ctrl+R/Ctrl+C); a 132-column render test asserts no hint is clipped",

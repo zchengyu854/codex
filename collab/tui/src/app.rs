@@ -62,10 +62,16 @@ pub struct Pane {
     pub context_bytes: Option<usize>,
     pub history: Vec<Line<'static>>,
     pub input: String,
+    /// Caret position in `input`, always on a UTF-8 boundary.
+    pub cursor: usize,
     pub scroll: usize,
     pub stopped: bool,
     /// Public text streamed for the running task and not yet finalized by a public message.
     pub draft: String,
+    /// Lines dispatched from this pane, newest last; recalled with Up/Down.
+    sent: Vec<String>,
+    /// Position within `sent` during a recall, plus the draft stashed when the recall started.
+    recall: Option<(usize, String)>,
 }
 
 impl Pane {
@@ -80,10 +86,116 @@ impl Pane {
             context_bytes: None,
             history: Vec::new(),
             input: String::new(),
+            cursor: 0,
             scroll: 0,
             stopped: false,
             draft: String::new(),
+            sent: Vec::new(),
+            recall: None,
         }
+    }
+
+    /// Clamp the caret into the input, so public field writes can never desync the two.
+    fn sync_cursor(&mut self) {
+        self.cursor = self.cursor.min(self.input.len());
+        while !self.input.is_char_boundary(self.cursor) {
+            self.cursor -= 1;
+        }
+    }
+
+    /// Insert one character at the caret; returns false once the byte cap is reached.
+    fn insert_char(&mut self, character: char, limit: usize) -> bool {
+        if self.input.len() + character.len_utf8() > limit {
+            return false;
+        }
+        self.sync_cursor();
+        self.input.insert(self.cursor, character);
+        self.cursor += character.len_utf8();
+        true
+    }
+
+    /// Move the caret one character left.
+    fn move_left(&mut self) {
+        self.sync_cursor();
+        if let Some((index, _)) = self.input[..self.cursor].char_indices().next_back() {
+            self.cursor = index;
+        }
+    }
+
+    /// Move the caret one character right.
+    fn move_right(&mut self) {
+        self.sync_cursor();
+        if let Some(character) = self.input[self.cursor..].chars().next() {
+            self.cursor += character.len_utf8();
+        }
+    }
+
+    /// Delete the character before the caret.
+    fn backspace(&mut self) {
+        self.sync_cursor();
+        if let Some((index, _)) = self.input[..self.cursor].char_indices().next_back() {
+            self.input.remove(index);
+            self.cursor = index;
+        }
+    }
+
+    /// Delete the character under the caret.
+    fn delete(&mut self) {
+        self.sync_cursor();
+        if self.cursor < self.input.len() {
+            self.input.remove(self.cursor);
+        }
+    }
+
+    /// Remember a dispatched line so Up/Down can recall it, skipping immediate repeats.
+    fn remember(&mut self, text: &str) {
+        if self.sent.last().map(String::as_str) == Some(text) {
+            return;
+        }
+        self.sent.push(text.to_owned());
+        // shortcut: 每个窗格只保留最近 100 条输入历史，够用且不会无界增长。
+        if self.sent.len() > 100 {
+            self.sent.remove(0);
+        }
+    }
+
+    /// Recall an older dispatched line, stashing the in-progress draft on the first step.
+    fn recall_previous(&mut self) {
+        if self.sent.is_empty() {
+            return;
+        }
+        let index = match self.recall.take() {
+            None => {
+                let index = self.sent.len() - 1;
+                self.recall = Some((index, self.input.clone()));
+                index
+            }
+            Some((0, stash)) => {
+                self.recall = Some((0, stash));
+                return;
+            }
+            Some((index, stash)) => {
+                let previous = index - 1;
+                self.recall = Some((previous, stash));
+                previous
+            }
+        };
+        self.input = self.sent[index].clone();
+        self.cursor = self.input.len();
+    }
+
+    /// Walk forward through the recalled lines, restoring the stashed draft past the newest.
+    fn recall_next(&mut self) {
+        let Some((index, stash)) = self.recall.take() else {
+            return;
+        };
+        if index + 1 < self.sent.len() {
+            self.recall = Some((index + 1, stash));
+            self.input = self.sent[index + 1].clone();
+        } else {
+            self.input = stash;
+        }
+        self.cursor = self.input.len();
     }
 }
 
@@ -432,22 +544,17 @@ impl App {
                 ],
             ),
         ];
-        let panes = specs.map(|(role, model, api, protocol, status, lines)| Pane {
-            agent_id: None,
-            role: role.into(),
-            model: model.into(),
-            api: api.into(),
-            protocol: protocol.into(),
-            status: status.into(),
-            context_bytes: None,
-            history: lines
+        let panes = specs.map(|(role, model, api, protocol, status, lines)| {
+            let mut pane = Pane::placeholder(role);
+            pane.model = model.into();
+            pane.api = api.into();
+            pane.protocol = protocol.into();
+            pane.status = status.into();
+            pane.history = lines
                 .into_iter()
                 .map(|(color, text)| line(text, color))
-                .collect(),
-            input: String::new(),
-            scroll: 0,
-            stopped: false,
-            draft: String::new(),
+                .collect();
+            pane
         });
         Self {
             mode: Mode::Demo,
@@ -598,10 +705,23 @@ impl App {
             KeyCode::PageDown => {
                 self.panes[self.focused].scroll = self.panes[self.focused].scroll.saturating_sub(8)
             }
-            KeyCode::End => self.panes[self.focused].scroll = 0,
-            KeyCode::Backspace => {
-                self.panes[self.focused].input.pop();
+            KeyCode::End => {
+                let pane = &mut self.panes[self.focused];
+                // While browsing history, End still jumps back to the live tail; otherwise it moves
+                // the caret to the end of the line.
+                if pane.scroll > 0 {
+                    pane.scroll = 0;
+                } else {
+                    pane.cursor = pane.input.len();
+                }
             }
+            KeyCode::Home => self.panes[self.focused].cursor = 0,
+            KeyCode::Left => self.panes[self.focused].move_left(),
+            KeyCode::Right => self.panes[self.focused].move_right(),
+            KeyCode::Up => self.panes[self.focused].recall_previous(),
+            KeyCode::Down => self.panes[self.focused].recall_next(),
+            KeyCode::Delete => self.panes[self.focused].delete(),
+            KeyCode::Backspace => self.panes[self.focused].backspace(),
             KeyCode::Enter => self.send(),
             KeyCode::Char(c) => self.paste(&c.to_string()),
             _ => {}
@@ -1241,8 +1361,8 @@ impl App {
             }
             return;
         }
-        let input = &mut self.panes[self.focused].input;
-        // shortcut: 演示仅支持末尾输入和退格，接入真实任务时再补充光标编辑。
+        let pane = &mut self.panes[self.focused];
+        // shortcut: 单行输入，上限 4096 字节；接入真实任务时再考虑多行编辑。
         for c in text.chars() {
             let c = if matches!(c, '\n' | '\r' | '\t') {
                 ' '
@@ -1252,11 +1372,10 @@ impl App {
             if c.is_control() {
                 continue;
             }
-            if input.len() + c.len_utf8() > 4096 {
+            if !pane.insert_char(c, 4096) {
                 self.feedback = "输入上限为 4096 字节，请分段输入。".into();
                 break;
             }
-            input.push(c);
         }
     }
 
@@ -1266,6 +1385,7 @@ impl App {
         if message.is_empty() {
             return;
         }
+        self.panes[index].remember(&message);
         match self.mode {
             Mode::Demo => {
                 let p = &mut self.panes[index];
@@ -1280,6 +1400,8 @@ impl App {
                     p.history.drain(..excess);
                 }
                 p.input.clear();
+                p.cursor = 0;
+                p.recall = None;
                 p.scroll = 0;
                 p.stopped = false;
                 p.status = "模拟完成".into();
@@ -1289,6 +1411,8 @@ impl App {
             Mode::Live => {
                 let p = &mut self.panes[index];
                 p.input.clear();
+                p.cursor = 0;
+                p.recall = None;
                 p.scroll = 0;
                 self.outbox.push(Action::Send {
                     pane: index,
@@ -1657,6 +1781,116 @@ mod tests {
         assert!(matches!(app.outbox.last(), Some(Action::RefreshOutput)));
         app.key(press(KeyCode::Esc));
         assert!(app.output.is_none());
+    }
+    #[test]
+    fn pane_input_edits_at_the_caret() {
+        let mut app = App::demo();
+        app.paste("abcd");
+        app.key(press(KeyCode::Left));
+        app.key(press(KeyCode::Left));
+        app.paste("X");
+        assert_eq!(app.panes[0].input, "abXcd");
+        assert_eq!(app.panes[0].cursor, 3);
+        app.key(press(KeyCode::Backspace));
+        assert_eq!(app.panes[0].input, "abcd");
+        app.key(press(KeyCode::Delete));
+        assert_eq!(app.panes[0].input, "abd");
+        app.key(press(KeyCode::Home));
+        assert_eq!(app.panes[0].cursor, 0);
+        app.paste("Y");
+        assert_eq!(app.panes[0].input, "Yabd");
+        app.key(press(KeyCode::End));
+        assert_eq!(app.panes[0].cursor, 4);
+        app.paste("Z");
+        assert_eq!(app.panes[0].input, "YabdZ");
+        // Arrow keys never move the caret off the line.
+        for _ in 0..8 {
+            app.key(press(KeyCode::Right));
+        }
+        assert_eq!(app.panes[0].cursor, 5);
+        for _ in 0..8 {
+            app.key(press(KeyCode::Left));
+        }
+        assert_eq!(app.panes[0].cursor, 0);
+        app.key(press(KeyCode::Backspace));
+        assert_eq!(
+            app.panes[0].input, "YabdZ",
+            "backspace at the start is a no-op"
+        );
+    }
+    #[test]
+    fn pane_input_edits_multibyte_text_at_char_boundaries() {
+        let mut app = App::demo();
+        app.paste("中文ab");
+        app.key(press(KeyCode::Left));
+        app.key(press(KeyCode::Backspace));
+        assert_eq!(app.panes[0].input, "中文b");
+        assert_eq!(app.panes[0].cursor, 6);
+        app.key(press(KeyCode::Home));
+        app.key(press(KeyCode::Delete));
+        assert_eq!(
+            app.panes[0].input, "文b",
+            "Delete removes one whole character"
+        );
+        app.paste("新");
+        assert_eq!(app.panes[0].input, "新文b");
+    }
+    #[test]
+    fn pane_input_recalls_sent_lines_and_restores_the_draft() {
+        let mut app = App::demo();
+        assert_eq!(app.panes[0].sent.len(), 0);
+        for message in ["first line", "second line"] {
+            app.paste(message);
+            app.key(press(KeyCode::Enter));
+        }
+        assert_eq!(app.panes[0].sent, vec!["first line", "second line"]);
+        app.paste("draft");
+        app.key(press(KeyCode::Up));
+        assert_eq!(app.panes[0].input, "second line");
+        assert_eq!(app.panes[0].cursor, 11, "recall puts the caret at the end");
+        app.key(press(KeyCode::Up));
+        assert_eq!(app.panes[0].input, "first line");
+        app.key(press(KeyCode::Up));
+        assert_eq!(
+            app.panes[0].input, "first line",
+            "the oldest entry is sticky"
+        );
+        app.key(press(KeyCode::Down));
+        assert_eq!(app.panes[0].input, "second line");
+        app.key(press(KeyCode::Down));
+        assert_eq!(
+            app.panes[0].input, "draft",
+            "past the newest the draft comes back"
+        );
+        app.key(press(KeyCode::Down));
+        assert_eq!(
+            app.panes[0].input, "draft",
+            "Down without a recall is a no-op"
+        );
+        // Immediate repeats are not stored twice.
+        app.panes[0].input.clear();
+        app.paste("same");
+        app.key(press(KeyCode::Enter));
+        app.paste("same");
+        app.key(press(KeyCode::Enter));
+        assert_eq!(app.panes[0].sent.last().map(String::as_str), Some("same"));
+        assert_eq!(app.panes[0].sent.len(), 3);
+    }
+    #[test]
+    fn pane_input_history_is_bounded_and_per_pane() {
+        let mut app = App::demo();
+        for index in 0..120 {
+            app.paste(&format!("line {index}"));
+            app.key(press(KeyCode::Enter));
+        }
+        assert_eq!(app.panes[0].sent.len(), 100);
+        assert_eq!(
+            app.panes[0].sent.first().map(String::as_str),
+            Some("line 20")
+        );
+        app.key(press(KeyCode::Tab));
+        app.key(press(KeyCode::Up));
+        assert_eq!(app.panes[1].input, "", "history is per pane");
     }
     #[test]
     fn probe_needs_a_configured_agent_then_queues() {

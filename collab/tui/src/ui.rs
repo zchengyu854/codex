@@ -522,19 +522,19 @@ fn draw_pane(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
     let top = max_scroll.saturating_sub(p.scroll).min(u16::MAX as usize) as u16;
     frame.render_widget(history.scroll((top, 0)), rows[1]);
     let width = rows[2].width.saturating_sub(3);
-    let tail = input_tail(&p.input, width);
+    let (visible, caret) = input_window(&p.input, p.cursor, width);
     frame.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(
                 "❯ ",
                 Style::default().fg(if active { GREEN } else { MUTED }),
             ),
-            Span::raw(tail),
+            Span::raw(visible),
         ])),
         rows[2],
     );
     if show_cursor && rows[2].width > 2 {
-        frame.set_cursor_position((rows[2].x + 2 + Line::from(tail).width() as u16, rows[2].y));
+        frame.set_cursor_position((rows[2].x + 2 + caret, rows[2].y));
     }
     if p.scroll > 0 {
         frame.render_widget(
@@ -544,9 +544,13 @@ fn draw_pane(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
     }
 }
 
-fn input_tail(input: &str, width: u16) -> &str {
-    let mut columns = 0;
+/// The visible single-line window of the pane input, plus the caret column inside it.
+///
+/// The window is anchored at the end, like a shell, unless that would push the caret out of view;
+/// in that case the window starts at the caret so editing never happens off-screen.
+fn input_window(input: &str, cursor: usize, width: u16) -> (&str, u16) {
     let mut start = input.len();
+    let mut columns = 0;
     for (offset, character) in input.char_indices().rev() {
         let character_width = Line::from(character.to_string()).width();
         if columns + character_width > width as usize {
@@ -555,7 +559,15 @@ fn input_tail(input: &str, width: u16) -> &str {
         columns += character_width;
         start = offset;
     }
-    &input[start..]
+    let mut cursor = cursor.min(input.len());
+    while !input.is_char_boundary(cursor) {
+        cursor -= 1;
+    }
+    if cursor < start {
+        start = cursor;
+    }
+    let caret = Line::from(&input[start..cursor]).width();
+    (&input[start..], (caret.min(width as usize)) as u16)
 }
 
 #[cfg(test)]
@@ -615,9 +627,18 @@ mod tests {
         assert!(!text.contains("fast-model"));
     }
     #[test]
-    fn unicode_input_tail_fits_without_cutting_utf8() {
-        assert_eq!(input_tail("abc中文", 4), "中文");
-        assert_eq!(input_tail("中文", 1), "");
+    fn unicode_input_window_fits_without_cutting_utf8() {
+        // Tail-anchored by default, with the caret column measured inside the window.
+        assert_eq!(input_window("abc中文", 9, 4), ("中文", 4));
+        assert_eq!(input_window("中文", 6, 1), ("", 0));
+        // A caret left of the tail window re-anchors the window so editing stays on screen.
+        assert_eq!(input_window("abcdef中文ghij", 6, 6), ("中文ghij", 0));
+        assert_eq!(input_window("abcdef中文ghij", 14, 6), ("文ghij", 4));
+        let long = "中".repeat(10);
+        assert_eq!(input_window(&long, 12, 8), ("中中中中中中", 0));
+        // An out-of-range or mid-character caret never panics the renderer.
+        assert_eq!(input_window("中文", 99, 8), ("中文", 4));
+        assert_eq!(input_window("中文", 1, 8), ("中文", 0));
         let mut app = App::demo();
         app.paste(&"中文".repeat(300));
         screen(&mut app, 70, 20);

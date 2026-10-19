@@ -1,0 +1,47 @@
+{
+  "runtime": "codex-cli 0.162.1",
+  "results": [
+    {
+      "label": "alpha",
+      "port": 61518,
+      "tool_calls": 1,
+      "deltas": [
+        "alpha complete"
+      ],
+      "status": "completed",
+      "requests": [
+        {
+          "path": "/v1/responses",
+          "model": "mock-alpha",
+          "auth_ok": true
+        },
+        {
+          "path": "/v1/responses",
+          "model": "mock-alpha",
+          "auth_ok": true
+        }
+      ]
+    },
+    {
+      "label": "beta",
+      "port": 61519,
+      "tool_calls": 1,
+      "deltas": [
+        "beta complete"
+      ],
+      "status": "completed",
+      "requests": [
+        {
+          "path": "/v1/responses",
+          "model": "mock-beta",
+          "auth_ok": true
+        },
+        {
+          "path": "/v1/responses",
+          "model": "mock-beta",
+          "auth_ok": true
+        }
+      ]
+    }
+  ]
+}

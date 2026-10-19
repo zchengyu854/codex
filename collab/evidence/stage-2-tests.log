@@ -1,0 +1,89 @@
+   Compiling codex-collab-core v0.1.0 (/Users/Apple/Documents/ZcyCode/codex-collab/collab/core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.53s
+     Running unittests src/lib.rs (/tmp/codex-collab-stage2/target/debug/deps/codex_collab_core-715e658730271083)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (/tmp/codex-collab-stage2/target/debug/deps/codex_collab_core-07ef375f2c7c758c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/gateway.rs (/tmp/codex-collab-stage2/target/debug/deps/gateway-35bf0010db29b475)
+
+running 4 tests
+test unsupported_chat_tool_fails_before_contacting_upstream ... ok
+test both_protocols_inject_current_records_every_model_request ... ok
+test cancellation_aborts_waiting_upstream_request ... ok
+test local_auth_rejects_cross_agent_access_and_bounded_retry ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.80s
+
+     Running tests/git.rs (/tmp/codex-collab-stage2/target/debug/deps/git-9ec89e480468ee30)
+
+running 5 tests
+test non_git_and_missing_validation_are_rejected ... ok
+test failed_validation_preserves_candidate_without_advancing_branch ... ok
+test validation_cannot_sneak_unreviewed_changes_into_commit ... ok
+test conflicting_change_pauses_without_advancing_branch ... ok
+test worktrees_exclude_dirty_original_and_revalidate_stale_results ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.74s
+
+     Running tests/protocol.rs (/tmp/codex-collab-stage2/target/debug/deps/protocol-92043b79b8c72f39)
+
+running 9 tests
+test sse_mixed_line_endings_keep_frame_order ... ok
+test secret_never_serializes_and_redaction_covers_repeats ... ok
+test sse_decoder_handles_fragmentation_crlf_and_utf8 ... ok
+test rejects_unsupported_capabilities ... ok
+test stream_redaction_handles_keys_split_at_every_boundary ... ok
+test converts_roles_tools_and_full_tool_history ... ok
+test rejects_incomplete_and_unknown_output ... ok
+test assembles_fragmented_calls_text_and_usage ... ok
+test namespaced_custom_tool_roundtrip ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/runtime.rs (/tmp/codex-collab-stage2/target/debug/deps/runtime-5fbe00ac643e1978)
+
+running 2 tests
+test cancel_while_awaiting_approval_cleans_up_and_rejects_late_choice ... ok
+test routes_approval_to_exact_agent_and_redacts_local_credentials ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
+
+     Running tests/runtime_e2e.rs (/tmp/codex-collab-stage2/target/debug/deps/runtime_e2e-e11b6f0fc2dcec64)
+
+running 1 test
+test coordinator_delegates_three_workers_across_both_protocols_and_integrates ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.33s
+
+     Running tests/store.rs (/tmp/codex-collab-stage2/target/debug/deps/store-7a654458385a98ff)
+
+running 12 tests
+test api_url_rejects_embedded_keys_and_remote_plaintext ... ok
+test enforces_roles_and_four_agents ... ok
+test cannot_reconfigure_running_or_move_agent ... ok
+test approval_rejects_stale_user_choice_after_cancel ... ok
+test cross_session_dependencies_rejected ... ok
+test failed_dependencies_block_and_cancel_wins_over_late_completion ... ok
+test budget_does_not_silently_drop_constraints ... ok
+test dependencies_require_coding_integration ... ok
+test versioned_context_retains_user_overrides_and_checkpoint_audit ... ok
+test prevents_two_hosts_recovering_same_state ... ok
+test recovery_does_not_replay_running_tasks ... ok
+test queue_limits_and_one_task_per_agent ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+   Doc-tests codex_collab_core
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

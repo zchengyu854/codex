@@ -1,0 +1,13 @@
+{
+  "scope": "terminal demo only; no model or backend connection",
+  "layout": "coordinator left 45%; three workers stacked right 55%",
+  "tests": {
+    "passed": 45,
+    "failed": 0,
+    "ignored": 1,
+    "ignored_reason": "existing installed-Codex end-to-end test not rerun for UI-only change"
+  },
+  "clippy": "passed with warnings denied",
+  "format": "passed",
+  "pty_smoke": "passed: four panes, paste/send, stop, confirmed quit, terminal modes and alternate screen restoration, non-TTY rejection"
+}

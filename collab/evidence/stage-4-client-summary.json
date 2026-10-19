@@ -1,0 +1,38 @@
+{
+  "stage": "4",
+  "segments": [
+    "4-1 host client skeleton",
+    "4-2 approvals and credentials",
+    "4-3 coding flag, diff review and integration",
+    "4-4 session creation form and context compaction"
+  ],
+  "date": "2026-10-19",
+  "scope": "terminal client: subprocess host + JSON-line stdio; real session/agent/task display, public text streaming, task create/cancel, refresh, operation approvals, masked credential submission, coding-task flag, diff review and guarded integration, interactive session creation and revision-checked context compaction",
+  "integration_mode": "subprocess host + JSON-line stdio (docs/core-api.md)",
+  "suite": {
+    "passed": 73,
+    "failed": 0,
+    "ignored": 2,
+    "groups": {
+      "core": 32,
+      "tui": 41
+    },
+    "ignored_reason": "core runtime_e2e needs installed Codex; tui real-host smoke needs a built codex-collab-core"
+  },
+  "opt_in": {
+    "tui_include_ignored_passed": 42,
+    "real_host_smoke": "passed: session/create, agent/configure, agent/list, task/list, approval/list, task/get, task/integrate, context/compact; unknown approval/task ids and stale compaction revisions fail closed, empty summary rejected",
+    "core_e2e_rerun": false
+  },
+  "format_check": "passed",
+  "clippy_warnings_as_errors": "passed",
+  "pty_demo_smoke": "passed: four panes, paste/send, stop, confirmed quit, terminal restoration, non-TTY rejection",
+  "pty_live_smoke": "passed: seeded real session+agent via line protocol; rendered real model name, coordinator pane, session label and protocol; coding toggle, review/compaction/create routing; masked credential form opened and the typed key was not echoed; confirmed quit and terminal restoration",
+  "credential_submission": "over the host's stdin only; masked in UI, never written to pane history or shared records",
+  "diff_review": "task/get plus a local read-only view of the `file diff` attachment (clipped to 100000 bytes); integration requires the exact expectedCommit and a review note",
+  "context_compaction": "paged event/list catch-up (500/page, 20-page cap) yields the exact session revision; context/compact uses it as expectedRevision and retries once on `context changed` while preserving the typed summary",
+  "session_creation": "interactive repository/validation/requirement form prefilled from CLI options; validation split into argument arrays without shell concatenation",
+  "integration_coverage": "core/tests/git.rs: candidate worktree hygiene, stale revalidation, failed validation, conflict pause, unreviewed-change rejection",
+  "real_api_tested": false,
+  "log": "evidence/stage-4-tests.log"
+}

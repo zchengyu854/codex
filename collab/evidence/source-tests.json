@@ -1,0 +1,11 @@
+{
+  "upstream_commit": "89461ea6833832b0551ce24ee32205824d5c108d",
+  "toolchain": "rustc 1.95.0",
+  "command": "RUSTUP_TOOLCHAIN=stable cargo test --locked -p codex-model-provider-info --lib --target-dir /tmp/codex-collab-stage1/target",
+  "exit_code": 0,
+  "passed": 33,
+  "failed": 0,
+  "ignored": 0,
+  "full_application_built": false,
+  "chat_wire_api_removal_test": "passed"
+}

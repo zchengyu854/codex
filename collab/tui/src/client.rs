@@ -3,18 +3,31 @@
 //! The client owns the host process, tracks in-flight requests by id, and applies responses and
 //! `collab/update` notifications to the [`App`]. It never reads the database or model adapters.
 use crate::app::{
-    ACCENT, Action, AgentForm, App, ApprovalItem, CompactForm, CreateForm, MUTED, Pane, ReviewForm,
-    WARN, line,
+    ACCENT, Action, AgentForm, App, ApprovalItem, CompactForm, CreateForm, GREEN, MUTED, Pane,
+    ReviewForm, WARN, line,
 };
 use crate::host::{Host, HostEvent};
 use ratatui::style::Color;
 use serde_json::{Value, json};
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 /// Events fetched per page when catching up the session revision before compaction.
 const EVENT_PAGE: u64 = 500;
 /// Upper bound on catch-up pages, so a very active session cannot stall the UI.
 const CATCH_UP_PAGES: u32 = 20;
+/// How long to wait between `agent/connectionResult` checks while a probe runs.
+const PROBE_INTERVAL: Duration = Duration::from_millis(900);
+/// Upper bound on probe checks, so a queued probe cannot poll the host forever.
+const PROBE_MAX_CHECKS: u32 = 100;
+
+/// An in-flight capability probe: `agent/testConnection` then `agent/connectionResult` checks.
+struct Probe {
+    pane: usize,
+    task_id: String,
+    checks: u32,
+    last: Instant,
+}
 
 /// Session selection and optional first-run creation.
 #[derive(Default)]
@@ -35,6 +48,8 @@ enum Pending {
     CredentialSaved,
     CredentialDeleted,
     AgentConfigured,
+    TestConnection { pane: usize },
+    ConnectionResult,
     Review { pane: usize, task_id: String },
     Integrated,
     Revision { pages: u32 },
@@ -55,6 +70,8 @@ pub struct Client {
     diff_artifacts: HashMap<String, std::path::PathBuf>,
     /// Summary and note to restore when a compaction retries after a revision change.
     compact_retry: Option<(String, String)>,
+    /// Capability probe currently being polled, if any.
+    probe: Option<Probe>,
 }
 
 impl Client {
@@ -68,6 +85,7 @@ impl Client {
             task_of_agent: HashMap::new(),
             diff_artifacts: HashMap::new(),
             compact_retry: None,
+            probe: None,
         }
     }
 
@@ -136,6 +154,45 @@ impl Client {
         for action in actions {
             self.on_action(app, action);
         }
+        self.tick_probe(app);
+    }
+
+    /// Poll a running capability probe at a fixed cadence until it reaches a terminal state.
+    fn tick_probe(&mut self, app: &mut App) {
+        let Some((task_id, checks, ready)) = self.probe.as_ref().map(|probe| {
+            (
+                probe.task_id.clone(),
+                probe.checks,
+                probe.checks == 0 || probe.last.elapsed() >= PROBE_INTERVAL,
+            )
+        }) else {
+            return;
+        };
+        if self
+            .pending
+            .values()
+            .any(|pending| matches!(pending, Pending::ConnectionResult))
+        {
+            return;
+        }
+        if checks >= PROBE_MAX_CHECKS {
+            app.feedback = "连接自检仍在进行（任务可能排队）；可稍后再次自检。".into();
+            self.probe = None;
+            return;
+        }
+        if !ready {
+            return;
+        }
+        if let Some(probe) = self.probe.as_mut() {
+            probe.checks += 1;
+            probe.last = Instant::now();
+        }
+        self.request(
+            app,
+            "agent/connectionResult",
+            json!({"taskId": task_id}),
+            Pending::ConnectionResult,
+        );
     }
 
     fn on_result(&mut self, app: &mut App, pending: Pending, value: Value) {
@@ -201,6 +258,39 @@ impl Client {
             Pending::AgentConfigured => {
                 app.feedback = "已配置 Agent，正在刷新窗格…".into();
                 self.load_agents(app);
+            }
+            Pending::TestConnection { pane } => match value["id"].as_str() {
+                Some(task_id) => {
+                    app.push_line(
+                        pane,
+                        format!("[自检] 已排队连接探针任务 {}", short(task_id)),
+                        MUTED,
+                    );
+                    app.feedback =
+                        "连接自检已开始：需要该 Agent 有可用密钥，结果会写入窗格。".into();
+                    self.probe = Some(Probe {
+                        pane,
+                        task_id: task_id.to_owned(),
+                        checks: 0,
+                        last: Instant::now(),
+                    });
+                    self.refresh_lists(app);
+                }
+                None => app.feedback = "连接自检未返回任务 id。".into(),
+            },
+            Pending::ConnectionResult => {
+                let outcome = probe_outcome(&value);
+                if let Some(pane) = self.probe.as_ref().map(|probe| probe.pane)
+                    && !outcome.message.is_empty()
+                {
+                    let color = if outcome.verified { GREEN } else { WARN };
+                    app.push_line(pane, outcome.message, color);
+                }
+                app.feedback = outcome.feedback;
+                if outcome.terminal {
+                    self.probe = None;
+                    self.refresh_lists(app);
+                }
             }
             Pending::Review { pane, task_id } => {
                 self.open_review(app, pane, task_id, &value);
@@ -574,6 +664,19 @@ impl Client {
                     Pending::AgentConfigured,
                 );
             }
+            Action::TestConnection { pane } => {
+                let Some(agent) = app.panes[pane].agent_id.clone() else {
+                    app.feedback = "该窗格尚未配置 Agent，无法自检。".into();
+                    return;
+                };
+                app.feedback = "已请求连接自检：会真实调用该 Agent 的模型。".into();
+                self.request(
+                    app,
+                    "agent/testConnection",
+                    json!({"agentId": agent}),
+                    Pending::TestConnection { pane },
+                );
+            }
             Action::CreateSession {
                 repository,
                 validation,
@@ -592,6 +695,12 @@ impl Client {
 
     /// Surface a host error; a compaction revision clash refreshes and reopens the form.
     fn on_error(&mut self, app: &mut App, pending: Pending, message: String) {
+        if matches!(pending, Pending::ConnectionResult) {
+            // Stop polling a probe the host no longer knows about.
+            self.probe = None;
+            app.feedback = format!("后台错误：{message}");
+            return;
+        }
         if let Pending::Compacted { summary } = pending
             && is_revision_conflict(&message)
         {
@@ -655,6 +764,62 @@ fn open_create_form(app: &mut App, options: &Options, note: String) {
 /// The host reports a revision clash this way; treat it as a soft retry.
 fn is_revision_conflict(message: &str) -> bool {
     message.contains("refresh before compacting")
+}
+
+/// A summarized `agent/connectionResult` payload.
+struct ProbeOutcome {
+    terminal: bool,
+    verified: bool,
+    /// Pane history line; empty while the probe is still running.
+    message: String,
+    feedback: String,
+}
+
+/// Summarize a connection probe payload: only a completed task that actually produced the probe
+/// tool result and a streamed usage record counts as verified.
+fn probe_outcome(value: &Value) -> ProbeOutcome {
+    let status = value["status"].as_str().unwrap_or("");
+    let verified = value["verified"].as_bool().unwrap_or(false);
+    let capabilities = value["capabilities"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>()
+        .join(" / ");
+    match status {
+        "completed" if verified => ProbeOutcome {
+            terminal: true,
+            verified: true,
+            message: format!("[自检] 通过：{capabilities}"),
+            feedback: "连接自检通过：文本 / 流式 / 函数工具均可用。".into(),
+        },
+        "completed" => ProbeOutcome {
+            terminal: true,
+            verified: false,
+            message: "[自检] 未通过：没有收到探针工具结果或流式用量".into(),
+            feedback: "连接自检未通过：模型未按要求调用 collab_publish 或缺少流式用量。".into(),
+        },
+        "failed" | "cancelled" => ProbeOutcome {
+            terminal: true,
+            verified: false,
+            message: format!("[自检] 未通过（状态 {}）", status_label(status)),
+            feedback: "连接自检未通过，详见窗格记录与任务结果。".into(),
+        },
+        _ => ProbeOutcome {
+            terminal: false,
+            verified: false,
+            message: String::new(),
+            feedback: format!(
+                "连接自检中（{}）…",
+                if status.is_empty() {
+                    "等待调度"
+                } else {
+                    status_label(status)
+                }
+            ),
+        },
+    }
 }
 
 /// Build the Agent form for a pane: editing an existing agent reuses its id and role, while an
@@ -1044,6 +1209,34 @@ mod tests {
         assert_eq!(form.context_bytes, "32768");
         assert_eq!(app.panes[1].context_bytes, Some(32768));
         assert_eq!(build_agent_form(&app, 0).role, "coordinator");
+    }
+
+    #[test]
+    fn probe_outcome_reports_progress_and_verdict() {
+        let running =
+            probe_outcome(&json!({"status":"running","verified":false,"capabilities":[]}));
+        assert!(!running.terminal);
+        assert!(running.message.is_empty());
+        assert!(running.feedback.contains("连接自检中"));
+
+        let verified = probe_outcome(&json!({
+            "status":"completed","verified":true,"capabilities":["text","stream","function_tools"]
+        }));
+        assert!(verified.terminal && verified.verified);
+        assert!(verified.message.contains("text / stream / function_tools"));
+
+        let incomplete =
+            probe_outcome(&json!({"status":"completed","verified":false,"capabilities":[]}));
+        assert!(incomplete.terminal && !incomplete.verified);
+        assert!(incomplete.message.contains("未通过"));
+
+        let failed = probe_outcome(&json!({"status":"failed","verified":false}));
+        assert!(failed.terminal && !failed.verified);
+        assert!(failed.message.contains("失败"));
+
+        let queued = probe_outcome(&json!({"taskId":"t"}));
+        assert!(!queued.terminal);
+        assert!(queued.feedback.contains("等待调度"));
     }
 
     #[test]

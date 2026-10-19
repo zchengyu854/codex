@@ -170,6 +170,9 @@ pub enum Action {
         protocol: String,
         context_bytes: usize,
     },
+    TestConnection {
+        pane: usize,
+    },
 }
 
 /// Context compaction form: a summary plus the exact session revision it is based on.
@@ -490,6 +493,7 @@ impl App {
                 }
                 KeyCode::Char('k') if self.mode == Mode::Live => self.open_credential(),
                 KeyCode::Char('a') if self.mode == Mode::Live => self.open_agent(),
+                KeyCode::Char('t') if self.mode == Mode::Live => self.open_probe(),
                 KeyCode::Char('e') if self.mode == Mode::Live => {
                     self.coding = !self.coding;
                     self.feedback = if self.coding {
@@ -672,6 +676,17 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    /// Ask the client to run a capability probe for the focused agent (live mode).
+    fn open_probe(&mut self) {
+        if self.panes[self.focused].agent_id.is_none() {
+            self.feedback = "该窗格尚未配置 Agent，无法自检。".into();
+            return;
+        }
+        self.outbox
+            .push(Action::TestConnection { pane: self.focused });
+        self.feedback = "正在排队连接探针任务…".into();
     }
 
     /// Ask the client to prepare the Agent configuration form for the focused pane.
@@ -1426,6 +1441,23 @@ mod tests {
         assert!(check_base_url("https://user:pw@example.com").is_err());
         assert!(check_base_url("https://example.com/v1?x=1").is_err());
         assert!(check_base_url("https://example.com/v1#f").is_err());
+    }
+    #[test]
+    fn probe_needs_a_configured_agent_then_queues() {
+        let mut app = App::live();
+        app.key(ctrl('t'));
+        assert!(
+            app.outbox.is_empty(),
+            "an unconfigured pane cannot be probed"
+        );
+        assert!(app.feedback.contains("尚未配置"));
+        app.panes[2].agent_id = Some("w".into());
+        app.focused = 2;
+        app.key(ctrl('t'));
+        assert!(matches!(
+            app.outbox.as_slice(),
+            [Action::TestConnection { pane: 2 }]
+        ));
     }
     #[test]
     fn live_cancel_and_refresh_use_the_outbox() {

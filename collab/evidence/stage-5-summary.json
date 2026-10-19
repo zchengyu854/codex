@@ -1,0 +1,53 @@
+{
+  "stage": "5",
+  "segments": [
+    "5-1 agent configuration form (agent/configure)",
+    "5-2 connection self-check (agent/testConnection / agent/connectionResult)"
+  ],
+  "date": "2026-10-19",
+  "scope": "terminal client contract coverage: configure an agent from the terminal, and run a capability self-check for an agent, closing the create-session -> configure-agents -> verify-endpoint loop",
+  "contract_coverage": {
+    "core_methods_implemented": 19,
+    "tui_methods_before": 14,
+    "tui_methods_after": 17,
+    "newly_wired": ["agent/configure", "agent/testConnection", "agent/connectionResult"]
+  },
+  "agent_configuration": {
+    "key": "Ctrl+A",
+    "role_mapping": "pane 1 -> coordinator, panes 2-4 -> worker; the user cannot pick a role, matching the agent/list pane mapping",
+    "id_generation": "empty pane gets uuid::Uuid::new_v4(); an existing agent keeps its id and prefills model/baseUrl/protocol/contextBytes from agent/list",
+    "local_validation": "model 1..200 bytes; contextBytes 4096..1000000; baseUrl mirrors core Agent::validate (https, or http on localhost/127.0.0.1/[::1]; no credentials/query/fragment). Host remains authoritative and its errors are surfaced verbatim",
+    "protocol_field": "toggle via Left/Right/Space between responses and chat_completions; not free text"
+  },
+  "connection_check": {
+    "key": "Ctrl+T",
+    "flow": "agent/testConnection queues a real probe task; the client then polls agent/connectionResult every 900ms up to 100 times until the task is completed/failed/cancelled",
+    "verdict": "verified=true only when the task completed and the host observed both the connection_probe_ok result event and a usage event; capabilities = text/stream/function_tools. Anything else is reported as not verified",
+    "display": "pane history gets `[自检] 已排队连接探针任务 <id>` then `[自检] 通过：…` (green) or `[自检] 未通过：…` (yellow); the probe becomes the agent's latest task so the status row tracks it and Ctrl+C can cancel it",
+    "bound": "bounded polling; on timeout it stops and tells the user the probe may still be queued; a host error stops polling immediately"
+  },
+  "suite": {
+    "passed": 83,
+    "failed": 0,
+    "ignored": 2,
+    "groups": {
+      "core": 32,
+      "tui": 51
+    },
+    "ignored_reason": "core runtime_e2e needs installed Codex; tui real-host smoke needs a built codex-collab-core"
+  },
+  "opt_in": {
+    "tui_include_ignored_passed": 52,
+    "real_host_smoke": "passed: session/create, agent/configure, agent/list (carries contextBytes), task/list, approval/list, task/get, task/integrate, context/compact, agent/testConnection, agent/connectionResult; non-UUID agent id and out-of-range contextBytes rejected; connectionResult reports verified=false with empty capabilities and rejects non-probe and unknown tasks; unknown approval/task ids and stale compaction revisions fail closed, empty summary rejected",
+    "core_e2e_rerun": false
+  },
+  "format_check": "passed",
+  "clippy_warnings_as_errors": "passed",
+  "pty_demo_smoke": "passed: four panes, paste/send, stop, confirmed quit, terminal restoration, non-TTY rejection",
+  "pty_live_smoke": "passed: seeded real session+agent via line protocol; Ctrl+A prefilled the seeded coordinator (edit path); Tabbed to a worker pane and added a second agent through the form; Ctrl+T queued a connection probe; coding toggle, review/compaction/create routing; masked credential form; confirmed quit and terminal restoration",
+  "pane_status_row": "shows `<baseUrl> / <protocol> · <contextBytes> 字节预算`",
+  "footer": "key hints moved to two lines (Tab/F2/F3/Ctrl+A, then Ctrl+T/Ctrl+E/Ctrl+G/Ctrl+P/Ctrl+N/Ctrl+K/Ctrl+R/Ctrl+C/Ctrl+Q) above the feedback line",
+  "cost_warning": "the connection probe truly calls the model and may incur cost; the feedback line states this explicitly",
+  "real_api_tested": false,
+  "log": "evidence/stage-5-tests.log"
+}

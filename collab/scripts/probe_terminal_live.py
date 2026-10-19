@@ -175,6 +175,16 @@ try:
     assert "worker-model" in text, f"configured worker model not rendered:\n{text[-2000:]!r}"
     assert "65536" in text, f"context budget not rendered:\n{text[-2000:]!r}"
 
+    # Ctrl+T queues a capability probe for the focused agent. Without a real credential the task
+    # cannot verify; the client must still report that the probe was queued.
+    output.clear()
+    os.write(master, b"\x14")  # Ctrl+T
+    drain(1.0)
+    text = re.sub(rb"\x1b\[[0-9;?]*[A-Za-z]", b"", bytes(output)).decode("utf-8", "replace")
+    assert "连接探针任务" in text or "连接自检" in text, (
+        f"connection probe was not queued:\n{text[-2000:]!r}"
+    )
+
     os.write(master, b"\x11")  # Ctrl+Q
     drain(0.3)
     os.write(master, b"\r")  # Enter confirms quit
@@ -183,7 +193,7 @@ try:
     drain(0.3)
     assert termios.tcgetattr(slave) == before, "terminal input modes were not restored"
     assert b"\x1b[?1049l" in output, "alternate screen was not restored"
-    print("PASS: live session/agent rendering, coding toggle, review routing, compaction and create forms, agent configuration, masked credential form, confirmed quit, terminal restoration")
+    print("PASS: live session/agent rendering, coding toggle, review routing, compaction and create forms, agent configuration, connection probe, masked credential form, confirmed quit, terminal restoration")
 finally:
     if process.poll() is None:
         process.kill()

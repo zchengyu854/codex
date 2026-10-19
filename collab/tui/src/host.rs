@@ -292,14 +292,18 @@ mod tests {
         }
 
         let mut host = Host::spawn(&core, &state, Path::new("codex")).unwrap();
+        // Notifications (task_changed, agent_delta, …) interleave with responses, so skip them.
         let response = |host: &Host, method: &str, params: Value| {
             let id = host.request(method, params).unwrap();
-            match wait_event(host, Duration::from_secs(15)).expect("host replied") {
-                HostEvent::Response { id: got, result } => {
-                    assert_eq!(got, id);
-                    result
+            loop {
+                match wait_event(host, Duration::from_secs(15)).expect("host replied") {
+                    HostEvent::Response { id: got, result } => {
+                        assert_eq!(got, id);
+                        return result;
+                    }
+                    HostEvent::Update(_) => continue,
+                    HostEvent::Closed(reason) => panic!("host closed: {reason}"),
                 }
-                other => panic!("unexpected event: {other:?}"),
             }
         };
 
@@ -436,6 +440,46 @@ mod tests {
             )
             .is_err(),
             "a stale revision must be rejected"
+        );
+
+        // The capability probe queues a real task; here nothing answers it, so it must come back
+        // unverified rather than claiming success. Only probe tasks are accepted by connectionResult.
+        let probe = response(
+            &host,
+            "agent/testConnection",
+            json!({"agentId": "11111111-2222-4333-8444-555555555555"}),
+        )
+        .unwrap();
+        let probe_id = probe["id"].as_str().expect("probe task id").to_owned();
+        let outcome =
+            response(&host, "agent/connectionResult", json!({"taskId": probe_id})).unwrap();
+        assert_eq!(outcome["verified"], false);
+        assert!(outcome["capabilities"].as_array().unwrap().is_empty());
+        assert!(
+            response(
+                &host,
+                "agent/connectionResult",
+                json!({"taskId": "missing"})
+            )
+            .is_err()
+        );
+        let plain = response(
+            &host,
+            "task/create",
+            json!({
+                "sessionId": session_id,
+                "agentId": "11111111-2222-4333-8444-555555555555",
+                "goal": "not a probe",
+                "acceptance": "",
+                "dependencies": [],
+                "coding": false
+            }),
+        )
+        .unwrap();
+        let plain_id = plain["id"].as_str().unwrap();
+        assert!(
+            response(&host, "agent/connectionResult", json!({"taskId": plain_id})).is_err(),
+            "connectionResult must reject tasks that are not probes"
         );
 
         host.shutdown();

@@ -38,7 +38,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         Constraint::Length(2),
         Constraint::Min(0),
         Constraint::Length(if app.shared { 5 } else { 0 }),
-        Constraint::Length(2),
+        Constraint::Length(3),
     ])
     .split(full);
     frame.render_widget(
@@ -87,11 +87,15 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         Paragraph::new(vec![
             Line::styled(
                 format!(
-                    "[{} {}] 编码:{} Tab 焦点 F2 放大 F3 共享 Ctrl+A 配置 Ctrl+E 编码 Ctrl+G 审查集成 Ctrl+P 压缩 Ctrl+N 新建 Ctrl+K 密钥 Ctrl+R 刷新 Ctrl+C 停止 Ctrl+Q 退出",
+                    "[{} {}] 编码:{}  Tab 焦点  F2 放大  F3 共享  Ctrl+A 配置",
                     app.focused + 1,
                     focused.role,
                     if app.coding { "开" } else { "关" }
                 ),
+                Style::default().fg(ACCENT),
+            ),
+            Line::styled(
+                "Ctrl+T 自检  Ctrl+E 编码  Ctrl+G 审查集成  Ctrl+P 压缩  Ctrl+N 新建  Ctrl+K 密钥  Ctrl+R 刷新  Ctrl+C 停止  Ctrl+Q 退出",
                 Style::default().fg(ACCENT),
             ),
             Line::styled(app.feedback.as_str(), Style::default().fg(MUTED)),
@@ -492,6 +496,7 @@ mod tests {
         }
         assert!(text.contains("模拟记录"));
         assert!(text.contains("Ctrl+Q"));
+        assert!(text.contains("Ctrl+T 自检"));
     }
     #[test]
     fn narrow_terminal_and_zoom_show_only_focused_model() {

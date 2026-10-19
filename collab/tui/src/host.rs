@@ -482,6 +482,32 @@ mod tests {
             "connectionResult must reject tasks that are not probes"
         );
 
+        // User publications are constrained to the three authoritative kinds and bump the revision.
+        let published = response(
+            &host,
+            "event/publish",
+            json!({
+                "sessionId": session_id,
+                "kind": "requirement",
+                "data": "keep the public API stable"
+            }),
+        )
+        .unwrap();
+        assert!(published["revision"].as_i64().unwrap() > new_revision);
+        assert!(
+            response(
+                &host,
+                "event/publish",
+                json!({
+                    "sessionId": session_id,
+                    "kind": "decision",
+                    "data": "clients cannot publish decisions"
+                })
+            )
+            .is_err(),
+            "only requirement/user_override/suggestion may be published"
+        );
+
         host.shutdown();
         let _ = std::fs::remove_dir_all(&root);
     }

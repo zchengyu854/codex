@@ -2,15 +2,21 @@
   "stage": "5",
   "segments": [
     "5-1 agent configuration form (agent/configure)",
-    "5-2 connection self-check (agent/testConnection / agent/connectionResult)"
+    "5-2 connection self-check (agent/testConnection / agent/connectionResult)",
+    "5-3 user constraint publication (event/publish)"
   ],
   "date": "2026-10-19",
-  "scope": "terminal client contract coverage: configure an agent from the terminal, and run a capability self-check for an agent, closing the create-session -> configure-agents -> verify-endpoint loop",
+  "scope": "terminal client contract coverage: configure an agent from the terminal, run a capability self-check, and publish user constraints, closing the create-session -> configure-agents -> verify-endpoint -> steer-the-session loop",
   "contract_coverage": {
     "core_methods_implemented": 19,
     "tui_methods_before": 14,
-    "tui_methods_after": 17,
-    "newly_wired": ["agent/configure", "agent/testConnection", "agent/connectionResult"]
+    "tui_methods_after": 18,
+    "newly_wired": [
+      "agent/configure",
+      "agent/testConnection",
+      "agent/connectionResult",
+      "event/publish"
+    ]
   },
   "agent_configuration": {
     "key": "Ctrl+A",
@@ -26,27 +32,37 @@
     "display": "pane history gets `[自检] 已排队连接探针任务 <id>` then `[自检] 通过：…` (green) or `[自检] 未通过：…` (yellow); the probe becomes the agent's latest task so the status row tracks it and Ctrl+C can cancel it",
     "bound": "bounded polling; on timeout it stops and tells the user the probe may still be queued; a host error stops polling immediately"
   },
+  "user_constraints": {
+    "key": "Ctrl+U",
+    "kinds": "requirement / user_override / suggestion, toggled with Left/Right/Tab and marked with a filled bullet; the default is requirement",
+    "semantics": "requirement and user_override are authoritative records the host injects into every model request and which outrank model decisions; suggestion is advisory. The modal states this",
+    "content": "single line, <= 4096 bytes; spaces are content and never toggle the kind (regression-covered); empty content is rejected locally with a Chinese note",
+    "flow": "event/publish returns a revision, the client then refreshes event/list so the record appears in the shared panel (F3) as `[用户] …` or `[建议] …`",
+    "host_authority": "the kind whitelist, length limits and injection timing live in the host; the client only offers legal kinds and does not duplicate the check",
+    "irreversible": "a published constraint cannot be retracted from the terminal; records are append-only by design and the modal says so"
+  },
   "suite": {
-    "passed": 83,
+    "passed": 86,
     "failed": 0,
     "ignored": 2,
     "groups": {
       "core": 32,
-      "tui": 51
+      "tui": 54
     },
     "ignored_reason": "core runtime_e2e needs installed Codex; tui real-host smoke needs a built codex-collab-core"
   },
   "opt_in": {
-    "tui_include_ignored_passed": 52,
-    "real_host_smoke": "passed: session/create, agent/configure, agent/list (carries contextBytes), task/list, approval/list, task/get, task/integrate, context/compact, agent/testConnection, agent/connectionResult; non-UUID agent id and out-of-range contextBytes rejected; connectionResult reports verified=false with empty capabilities and rejects non-probe and unknown tasks; unknown approval/task ids and stale compaction revisions fail closed, empty summary rejected",
+    "tui_include_ignored_passed": 55,
+    "real_host_smoke": "passed: session/create, agent/configure, agent/list (carries contextBytes), task/list, approval/list, task/get, task/integrate, context/compact, agent/testConnection, agent/connectionResult, event/publish; non-UUID agent id and out-of-range contextBytes rejected; connectionResult reports verified=false with empty capabilities and rejects non-probe and unknown tasks; event/publish returns an increasing revision and rejects non-user kinds such as decision; unknown approval/task ids and stale compaction revisions fail closed, empty summary rejected",
     "core_e2e_rerun": false
   },
   "format_check": "passed",
   "clippy_warnings_as_errors": "passed",
   "pty_demo_smoke": "passed: four panes, paste/send, stop, confirmed quit, terminal restoration, non-TTY rejection",
-  "pty_live_smoke": "passed: seeded real session+agent via line protocol; Ctrl+A prefilled the seeded coordinator (edit path); Tabbed to a worker pane and added a second agent through the form; Ctrl+T queued a connection probe; coding toggle, review/compaction/create routing; masked credential form; confirmed quit and terminal restoration",
+  "pty_live_smoke": "passed: seeded real session+agent via line protocol; Ctrl+A prefilled the seeded coordinator (edit path); Tabbed to a worker pane and added a second agent through the form; Ctrl+T queued a connection probe; Ctrl+U selected suggestion, typed text containing spaces, published, and F3 confirmed `[建议] keep … stable` in the shared records; coding toggle, review/compaction/create routing; masked credential form; confirmed quit and terminal restoration",
   "pane_status_row": "shows `<baseUrl> / <protocol> · <contextBytes> 字节预算`",
-  "footer": "key hints moved to two lines (Tab/F2/F3/Ctrl+A, then Ctrl+T/Ctrl+E/Ctrl+G/Ctrl+P/Ctrl+N/Ctrl+K/Ctrl+R/Ctrl+C/Ctrl+Q) above the feedback line",
+  "footer": "key hints on two lines (Tab/F2/F3/Ctrl+A, then Ctrl+T/Ctrl+U/Ctrl+E/Ctrl+G/Ctrl+P/Ctrl+N/Ctrl+K/Ctrl+R/Ctrl+C/Ctrl+Q) above the feedback line",
+  "pty_render_note": "ratatui emits only changed cells, so spaces are absent from the pty byte stream; the live probe matches on non-space runs and record prefixes instead",
   "cost_warning": "the connection probe truly calls the model and may incur cost; the feedback line states this explicitly",
   "real_api_tested": false,
   "log": "evidence/stage-5-tests.log"

@@ -1,6 +1,6 @@
 # 阶段 5：补齐终端契约覆盖
 
-状态：第一段（Agent 配置表单）与第二段（连接自检）完成并验证。其余段落见文末“后续段落”。
+状态：第一段（Agent 配置表单）、第二段（连接自检）与第三段（用户约束发布）完成并验证。其余段落见文末“后续段落”。
 
 ## 背景
 
@@ -29,6 +29,14 @@
   - `failed`/`cancelled` → “未通过（状态 …）”。
 - 显示：排队时写入窗格 `[自检] 已排队连接探针任务 <id>`；结束后写入 `[自检] 通过：…`（绿）或 `[自检] 未通过：…`（黄）。探针成为该 Agent 的最新任务，因此状态行会同步“排队/工作中/已完成”，也能被 `Ctrl+C` 取消。
 
+## 第三段：用户约束发布（`event/publish`）
+
+- `Ctrl+U`：打开用户约束表单。类型在 `requirement`（需求）、`user_override`（用户覆盖）、`suggestion`（建议）之间用 `←`/`→`/`Tab` 切换，`◉` 标出当前项；内容为单行文本（≤4096 字节）；`Enter` 发布，`Esc` 取消。空格是内容的一部分，**不会**切换类型。
+- 语义：`requirement` 与 `user_override` 是权威记录，宿主会把它们持续注入**每一次**模型请求，并优先于模型决策；`suggestion` 仅作提示。表单提示行与模态标题都写明这一点。
+- 提交走宿主 `event/publish`；返回 `revision` 后立即触发 `event/list` 拉取，因此发布内容会以 `[用户] …` / `[建议] …` 出现在共享记录（`F3` 查看）。
+- 本地只拦空内容（提示“先填写内容，再发布”）。类型白名单由宿主强制（`user publications must be requirement, user_override, or suggestion`），客户端不复制该校验，只在类型选择器里只提供合法值。
+- 粘贴按内容清洗：换行/制表转空格，去控制字符，超限提示“约束上限为 4096 字节”。
+
 ## 运行
 
 ```sh
@@ -37,7 +45,7 @@ cargo run  --locked --manifest-path collab/Cargo.toml -p codex-collab-tui -- \
   --state /absolute/path/to/state --session <会话 ID>
 ```
 
-在终端内：`Ctrl+N` 新建会话 → `Tab` 选窗格 → `Ctrl+A` 配置该窗格的 Agent（并 `Ctrl+K` 设置密钥）→ `Ctrl+T` 自检 → 输入 Enter 派发任务。
+在终端内：`Ctrl+N` 新建会话 → `Tab` 选窗格 → `Ctrl+A` 配置该窗格的 Agent（并 `Ctrl+K` 设置密钥）→ `Ctrl+T` 自检 → 输入 Enter 派发任务；`Ctrl+U` 可随时发布用户约束，`F3` 查看共享记录。
 
 ## 协议映射（新增部分）
 
@@ -48,12 +56,16 @@ cargo run  --locked --manifest-path collab/Cargo.toml -p codex-collab-tui -- \
 | `agent/list` | —（响应） | 窗格额外记录 `contextBytes` 并在状态行显示预算 |
 | Ctrl+T | `agent/testConnection` | 排队探针任务并写入窗格 |
 | 探针轮询 | `agent/connectionResult`（900ms，≤100 次） | 提示行进度；终态写入窗格、刷新列表 |
+| Ctrl+U | —（本地打开表单） | 约束模态显示类型选择器与内容 |
+| 约束模态 Enter | `event/publish` | 提示行显示版本号，随即 `event/list` 把记录写入共享记录 |
 
 ## 安全与边界
 
 - `id` 与角色不可手填，避免跨会话迁移 Agent 或改变角色；宿主 `store.configure` 对此有独立校验，客户端只是不给用户制造非法输入。
 - Base URL 的本地校验是**友好提示**，不是安全边界：宿主 `Agent::validate` 仍是唯一权威；客户端不会向未通过本地校验的地址提交请求。
 - 连接自检会**真实调用模型并可能产生费用**，提示行明确写出这一点；能力判定字段全部来自后台，客户端不自行推断。
+- 用户约束一旦发布就会进入每次模型请求，**不能从终端撤回**；这是宿主的设计（记录只增不改），客户端因此把类型与语义写在模态里，且在发布前不预置任何正文。
+- 类型白名单、内容长度与注入时机全部由宿主决定；客户端不把用户输入拼进任何命令或路径，文本只作为 `event/publish` 的 `data` 字段传输。
 - 配置 Agent 与连接自检都只用宿主已支持的方法，未新增远程或文件访问面；终端仍只经行协议交互。
 - 运行中的任务不能被重配（宿主拒绝），表单只做提示，不代为取消。
 
@@ -68,13 +80,12 @@ python3 collab/scripts/probe_terminal.py collab/target/debug/codex-collab-tui
 python3 collab/scripts/probe_terminal_live.py collab/target/debug/codex-collab-tui collab/target/debug/codex-collab-core
 ```
 
-- 单元测试新增：配置表单的提交与字段映射、空模型/非法 URL/越界预算的拒绝与焦点跳转、协议切换与字段循环、Esc 取消、按字段清洗的粘贴；`build_agent_form` 对空窗格生成合法 UUID、对已有 Agent 预填 id/角色/模型/协议/预算；Base URL 校验与宿主规则逐条对照；连接自检的排他性（未配置窗格拒绝）、`probe_outcome` 对进行中/通过/未通过/待调度的分支；模态渲染与底部键位提示。
-- 真实宿主冒烟 `real_host_drives_session_and_agent_listing` 增补：`agent/list` 返回 `contextBytes`；非 UUID 的 `id` 与越界 `contextBytes` 被拒绝；`agent/testConnection` 返回探针任务且 `connectionResult` 在无执行时返回 `verified=false` 与空能力列表；非探针任务与未知任务均被 `agent/connectionResult` 拒绝。响应辅助函数改为跳过 `collab/update` 通知，避免任务通知与响应乱序造成误判。
-- 伪终端脚本 `probe_terminal_live.py` 增补：`Ctrl+A` 在已配置窗格预填现有 Agent（编辑路径）；`Tab` 到工作窗格后用表单新增 Agent（客户端生成 UUID、宿主校验端点，窗格渲染新模型与预算）；`Ctrl+T` 排队连接探针并确认客户端上报排队。
-- 本次工作区回归 **83 passed / 0 failed / 2 ignored**（core 32 / tui 51）；tui `--include-ignored` **52 passed**（含真实宿主冒烟）；Clippy（警告视为错误）与格式检查通过；demo 与 live 伪终端冒烟通过。原始日志见 `../evidence/stage-5-tests.log`，结构化结果见 `../evidence/stage-5-summary.json`。
+- 单元测试新增：配置表单的提交与字段映射、空模型/非法 URL/越界预算的拒绝与焦点跳转、协议切换与字段循环、Esc 取消、按字段清洗的粘贴；`build_agent_form` 对空窗格生成合法 UUID、对已有 Agent 预填 id/角色/模型/协议/预算；Base URL 校验与宿主规则逐条对照；连接自检的排他性（未配置窗格拒绝）、`probe_outcome` 对进行中/通过/未通过/待调度的分支；约束表单的类型前后循环与回绕、空内容拒绝、**空格属于正文而非切换键**、粘贴清洗与超限、Esc 取消；三个模态的渲染与底部键位提示。
+- 真实宿主冒烟 `real_host_drives_session_and_agent_listing` 增补：`agent/list` 返回 `contextBytes`；非 UUID 的 `id` 与越界 `contextBytes` 被拒绝；`agent/testConnection` 返回探针任务且 `connectionResult` 在无执行时返回 `verified=false` 与空能力列表；非探针任务与未知任务均被 `agent/connectionResult` 拒绝；`event/publish` 返回递增的 `revision`，且 `decision` 等非用户类型被拒绝。响应辅助函数改为跳过 `collab/update` 通知，避免任务通知与响应乱序造成误判。
+- 伪终端脚本 `probe_terminal_live.py` 增补：`Ctrl+A` 在已配置窗格预填现有 Agent（编辑路径）；`Tab` 到工作窗格后用表单新增 Agent（客户端生成 UUID、宿主校验端点，窗格渲染新模型与预算）；`Ctrl+T` 排队连接探针并确认客户端上报排队；`Ctrl+U` 切换类型到 `suggestion`、输入含空格文本并发布，再按 `F3` 确认共享记录出现 `[建议] …`——这一条同时锁住“类型选择器 → 事件 kind”与“空格不被吞掉”两个行为。
+- 本次工作区回归 **86 passed / 0 failed / 2 ignored**（core 32 / tui 54）；tui `--include-ignored` **55 passed**（含真实宿主冒烟）；Clippy（警告视为错误）与格式检查通过；demo 与 live 伪终端冒烟通过。原始日志见 `../evidence/stage-5-tests.log`，结构化结果见 `../evidence/stage-5-summary.json`。
 
 ## 后续段落（未开始）
 
-1. **用户约束**：`event/publish`，从终端发布 `requirement`/`user_override`/`suggestion`。
-2. **结果查看**：`task/output`，查看任务持久化结果摘要与运行中公开草稿（完整结果在附件文件）。
-3. **输入编辑增强**：光标编辑与命令历史（当前仅末尾追加与退格）。
+1. **结果查看**：`task/output`，查看任务持久化结果摘要与运行中公开草稿（完整结果在附件文件）。
+2. **输入编辑增强**：光标编辑与命令历史（当前仅末尾追加与退格）。

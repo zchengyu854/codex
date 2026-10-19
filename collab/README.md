@@ -1,6 +1,6 @@
 # Codex 多模型协作终端
 
-基于 Codex 的独立扩展项目，与 RoboPi 分开。上游提交固定于 `upstream.json`，开发分支为 `codex/multi-model-desktop`。目前完成源码/接口验证、Rust 协作核心、终端壳层演示、终端接入协作后台的四个段落（真实会话/Agent/任务显示、公开文本流、操作审批与密钥提交、编码开关与差异审查集成、会话创建与上下文压缩），并补齐 Agent 配置表单与连接自检（阶段 5 前两段）。界面为单终端多窗格。
+基于 Codex 的独立扩展项目，与 RoboPi 分开。上游提交固定于 `upstream.json`，开发分支为 `codex/multi-model-desktop`。目前完成源码/接口验证、Rust 协作核心、终端壳层演示、终端接入协作后台的四个段落（真实会话/Agent/任务显示、公开文本流、操作审批与密钥提交、编码开关与差异审查集成、会话创建与上下文压缩），并补齐 Agent 配置表单、连接自检与用户约束发布（阶段 5 前三段）。界面为单终端多窗格。
 
 - [第 1 阶段：基线与接口验证](docs/stage-1.md)
 - [第 2 阶段：协作核心及验收](docs/stage-2.md)
@@ -33,7 +33,7 @@ cargo run  --locked --manifest-path collab/Cargo.toml -p codex-collab-tui -- \
   --state /absolute/path/to/state --session <会话 ID>
 ```
 
-`--demo` 与实时模式二选一；未指定 `--session` 时使用第一个会话，没有任何会话且给出 `--repository` 时按其创建（需至少一条 `--validation`），否则弹出创建表单。Enter 派发任务、Ctrl+C 取消、Ctrl+R 刷新、Ctrl+A 配置 Agent（角色由窗格位置决定，`agent/configure`）、Ctrl+T 连接自检（`agent/testConnection`，会真实调用模型）、Ctrl+K 设置密钥、Ctrl+E 切换编码任务、Ctrl+G 审查并集成、Ctrl+P 压缩上下文、Ctrl+N 新建会话、F3 共享记录；待审操作会弹出审批模态（Y 批准 / N 拒绝）。详见阶段 4 与阶段 5 文档。
+`--demo` 与实时模式二选一；未指定 `--session` 时使用第一个会话，没有任何会话且给出 `--repository` 时按其创建（需至少一条 `--validation`），否则弹出创建表单。Enter 派发任务、Ctrl+C 取消、Ctrl+R 刷新、Ctrl+A 配置 Agent（角色由窗格位置决定，`agent/configure`）、Ctrl+T 连接自检（`agent/testConnection`，会真实调用模型）、Ctrl+U 发布用户约束（`event/publish`，需求/用户覆盖优先于模型决策）、Ctrl+K 设置密钥、Ctrl+E 切换编码任务、Ctrl+G 审查并集成、Ctrl+P 压缩上下文、Ctrl+N 新建会话、F3 共享记录；待审操作会弹出审批模态（Y 批准 / N 拒绝）。详见阶段 4 与阶段 5 文档。
 
 ## 运行后台
 

@@ -185,6 +185,35 @@ try:
         f"connection probe was not queued:\n{text[-2000:]!r}"
     )
 
+    # Ctrl+U publishes a user constraint; it must reach event/publish and land in the shared log.
+    output.clear()
+    os.write(master, b"\x15")  # Ctrl+U
+    drain(0.4)
+    text = re.sub(rb"\x1b\[[0-9;?]*[A-Za-z]", b"", bytes(output)).decode("utf-8", "replace")
+    assert "发布用户约束" in text, f"publish form missing:\n{text[-2000:]!r}"
+    assert "requirement" in text and "suggestion" in text, "kind selector missing"
+    os.write(master, b"\x1b[C\x1b[C")  # Right twice: requirement -> user_override -> suggestion
+    drain(0.3)
+    os.write(master, b"keep the public API stable")
+    drain(0.2)
+    os.write(master, b"\r")  # submit event/publish
+    drain(1.0)
+    text = re.sub(rb"\x1b\[[0-9;?]*[A-Za-z]", b"", bytes(output)).decode("utf-8", "replace")
+    assert "已发布" in text, f"publication feedback missing:\n{text[-2000:]!r}"
+
+    # The constraint must land in the shared log under the selected kind (suggestion -> "[建议]",
+    # which only matches if spaces in the text did not cycle the kind). ratatui emits only changed
+    # cells, so spaces are absent from the byte stream: match on non-space runs.
+    output.clear()
+    os.write(master, b"\x1bOR")  # F3 shows the shared records panel
+    drain(0.6)
+    text = re.sub(rb"\x1b\[[0-9;?]*[A-Za-z]", b"", bytes(output)).decode("utf-8", "replace")
+    assert "[建议]" in text and "keep" in text and "stable" in text, (
+        f"published constraint is not in the shared log:\n{text[-2000:]!r}"
+    )
+    os.write(master, b"\x1bOR")  # F3 hides it again
+    drain(0.3)
+
     os.write(master, b"\x11")  # Ctrl+Q
     drain(0.3)
     os.write(master, b"\r")  # Enter confirms quit
@@ -193,7 +222,7 @@ try:
     drain(0.3)
     assert termios.tcgetattr(slave) == before, "terminal input modes were not restored"
     assert b"\x1b[?1049l" in output, "alternate screen was not restored"
-    print("PASS: live session/agent rendering, coding toggle, review routing, compaction and create forms, agent configuration, connection probe, masked credential form, confirmed quit, terminal restoration")
+    print("PASS: live session/agent rendering, coding toggle, review routing, compaction and create forms, agent configuration, connection probe, user constraint publication, masked credential form, confirmed quit, terminal restoration")
 finally:
     if process.poll() is None:
         process.kill()

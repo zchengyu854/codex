@@ -1,4 +1,4 @@
-use crate::app::{ACCENT, App, GREEN, MUTED, WARN, line};
+use crate::app::{ACCENT, App, GREEN, MUTED, PUBLISH_KINDS, WARN, line, publish_kind_label};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
@@ -95,7 +95,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
                 Style::default().fg(ACCENT),
             ),
             Line::styled(
-                "Ctrl+T 自检  Ctrl+E 编码  Ctrl+G 审查集成  Ctrl+P 压缩  Ctrl+N 新建  Ctrl+K 密钥  Ctrl+R 刷新  Ctrl+C 停止  Ctrl+Q 退出",
+                "Ctrl+T 自检  Ctrl+U 约束  Ctrl+E 编码  Ctrl+G 审查集成  Ctrl+P 压缩  Ctrl+N 新建  Ctrl+K 密钥  Ctrl+R 刷新  Ctrl+C 停止  Ctrl+Q 退出",
                 Style::default().fg(ACCENT),
             ),
             Line::styled(app.feedback.as_str(), Style::default().fg(MUTED)),
@@ -244,6 +244,43 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
                 .block(
                     Block::bordered()
                         .title(" 配置 Agent · 端点、协议与上下文预算 ")
+                        .border_style(Style::default().fg(ACCENT)),
+                ),
+            popup,
+        );
+    }
+    if let Some(form) = &app.publish {
+        let selector = PUBLISH_KINDS
+            .iter()
+            .enumerate()
+            .map(|(index, kind)| {
+                let mark = if index == form.kind { "◉" } else { "○" };
+                format!("{mark} {}", publish_kind_label(kind))
+            })
+            .collect::<Vec<_>>()
+            .join("   ");
+        let mut lines = vec![
+            line("会话级用户约束会写入共享记录并持续注入模型上下文", MUTED),
+            line(String::new(), FOREGROUND),
+            line(format!("类型  {selector}"), FOREGROUND),
+            line(format!("内容 ❯ {}", form.input), ACCENT),
+        ];
+        if !form.note.is_empty() {
+            lines.push(line(form.note.clone(), WARN));
+        }
+        lines.push(line(
+            "←/→ 切换类型 · Enter 发布 · Esc 取消（需求与用户覆盖优先于模型决策）",
+            GREEN,
+        ));
+        let popup = centered(full, full.width.min(110), full.height.min(18));
+        frame.render_widget(Clear, popup);
+        frame.render_widget(
+            Paragraph::new(lines)
+                .style(Style::default().bg(BACKGROUND).fg(FOREGROUND))
+                .wrap(Wrap { trim: false })
+                .block(
+                    Block::bordered()
+                        .title(" 发布用户约束 · event/publish ")
                         .border_style(Style::default().fg(ACCENT)),
                 ),
             popup,
@@ -555,6 +592,22 @@ mod tests {
         assert!(text.contains("新建协作会话"));
         assert!(text.contains("/tmp/repo"));
         assert!(text.contains("cargo test"));
+    }
+    #[test]
+    fn publish_modal_renders_kind_selector_and_content() {
+        use crate::app::PublishForm;
+        let mut app = App::live();
+        app.publish = Some(PublishForm {
+            kind: 1,
+            input: "保持向后兼容".into(),
+            note: String::new(),
+        });
+        let text = screen(&mut app, 140, 42);
+        assert!(text.contains("发布用户约束"));
+        assert!(text.contains("用户覆盖（user_override）"));
+        assert!(text.contains("保持向后兼容"));
+        assert!(text.contains('◉'), "the active kind is marked");
+        assert!(text.contains("Ctrl+U 约束"), "the footer advertises Ctrl+U");
     }
     #[test]
     fn review_modal_renders_diff_and_conclusion() {

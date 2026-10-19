@@ -4,7 +4,7 @@
 //! `collab/update` notifications to the [`App`]. It never reads the database or model adapters.
 use crate::app::{
     ACCENT, Action, AgentForm, App, ApprovalItem, CompactForm, CreateForm, GREEN, MUTED, Pane,
-    ReviewForm, WARN, line,
+    PublishForm, ReviewForm, WARN, line, publish_kind_label,
 };
 use crate::host::{Host, HostEvent};
 use ratatui::style::Color;
@@ -50,6 +50,7 @@ enum Pending {
     AgentConfigured,
     TestConnection { pane: usize },
     ConnectionResult,
+    Published { kind: &'static str },
     Review { pane: usize, task_id: String },
     Integrated,
     Revision { pages: u32 },
@@ -291,6 +292,14 @@ impl Client {
                     self.probe = None;
                     self.refresh_lists(app);
                 }
+            }
+            Pending::Published { kind } => {
+                let revision = value["revision"].as_i64().unwrap_or(0);
+                app.feedback = format!(
+                    "已发布 {} · 版本 {revision}，正在写入共享记录…",
+                    publish_kind_label(kind)
+                );
+                self.refresh_lists(app);
             }
             Pending::Review { pane, task_id } => {
                 self.open_review(app, pane, task_id, &value);
@@ -634,6 +643,29 @@ impl Client {
             }
             Action::OpenAgent { pane } => {
                 app.agent = Some(build_agent_form(app, pane));
+            }
+            Action::OpenPublish => {
+                if self.session.is_none() {
+                    app.feedback = "尚未连接会话，无法发布用户约束。".into();
+                    return;
+                }
+                app.publish = Some(PublishForm {
+                    kind: 0,
+                    input: String::new(),
+                    note: "←/→ 切换类型。需求与用户覆盖会持续注入每次模型请求并优先于模型决策；建议仅作提示。Enter 发布，Esc 取消。".into(),
+                });
+            }
+            Action::Publish { kind, data } => {
+                let Some(session) = self.session.clone() else {
+                    app.feedback = "尚未连接会话，无法发布用户约束。".into();
+                    return;
+                };
+                self.request(
+                    app,
+                    "event/publish",
+                    json!({"sessionId": session, "kind": kind, "data": data}),
+                    Pending::Published { kind },
+                );
             }
             Action::ConfigureAgent {
                 pane,

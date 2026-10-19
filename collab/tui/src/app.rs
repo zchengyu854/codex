@@ -173,6 +173,11 @@ pub enum Action {
     TestConnection {
         pane: usize,
     },
+    OpenPublish,
+    Publish {
+        kind: &'static str,
+        data: String,
+    },
 }
 
 /// Context compaction form: a summary plus the exact session revision it is based on.
@@ -189,6 +194,29 @@ pub struct CreateForm {
     pub requirement: String,
     /// Focused field: 0 repository, 1 validation, 2 requirement.
     pub field: usize,
+    pub note: String,
+}
+
+/// The user publication kinds accepted by `event/publish`, in toggle order.
+pub const PUBLISH_KINDS: [&str; 3] = ["requirement", "user_override", "suggestion"];
+
+/// Human label for a user publication kind.
+pub fn publish_kind_label(kind: &str) -> &'static str {
+    match kind {
+        "requirement" => "需求（requirement）",
+        "user_override" => "用户覆盖（user_override）",
+        _ => "建议（suggestion）",
+    }
+}
+
+/// User-publication form (`event/publish`): a kind plus one line of text.
+///
+/// `requirement` and `user_override` are authoritative records the host keeps injecting into every
+/// model request; `suggestion` is advisory.
+pub struct PublishForm {
+    /// Index into `PUBLISH_KINDS`.
+    pub kind: usize,
+    pub input: String,
     pub note: String,
 }
 
@@ -277,6 +305,7 @@ pub struct App {
     pub compact: Option<CompactForm>,
     pub create: Option<CreateForm>,
     pub agent: Option<AgentForm>,
+    pub publish: Option<PublishForm>,
     pub coding: bool,
 }
 
@@ -310,6 +339,7 @@ impl App {
             compact: None,
             create: None,
             agent: None,
+            publish: None,
             coding: false,
         }
     }
@@ -426,6 +456,7 @@ impl App {
             compact: None,
             create: None,
             agent: None,
+            publish: None,
             coding: false,
         }
     }
@@ -461,6 +492,10 @@ impl App {
             self.confirm_quit = true;
             return false;
         }
+        if self.publish.is_some() {
+            self.publish_key(key);
+            return false;
+        }
         if self.agent.is_some() {
             self.agent_key(key);
             return false;
@@ -494,6 +529,7 @@ impl App {
                 KeyCode::Char('k') if self.mode == Mode::Live => self.open_credential(),
                 KeyCode::Char('a') if self.mode == Mode::Live => self.open_agent(),
                 KeyCode::Char('t') if self.mode == Mode::Live => self.open_probe(),
+                KeyCode::Char('u') if self.mode == Mode::Live => self.open_publish(),
                 KeyCode::Char('e') if self.mode == Mode::Live => {
                     self.coding = !self.coding;
                     self.feedback = if self.coding {
@@ -676,6 +712,67 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    /// Ask the client to open the user-publication form (live mode).
+    fn open_publish(&mut self) {
+        self.outbox.push(Action::OpenPublish);
+        self.feedback = "正在准备用户约束表单…".into();
+    }
+
+    /// Keys while the user-publication form is open. Left/Right/Space toggles the kind.
+    fn publish_key(&mut self, key: KeyEvent) {
+        if self.publish.is_none() {
+            return;
+        }
+        match key.code {
+            KeyCode::Enter => self.submit_publish(),
+            KeyCode::Esc => {
+                self.publish = None;
+                self.feedback = "已取消发布。".into();
+            }
+            KeyCode::Left | KeyCode::BackTab => {
+                if let Some(form) = self.publish.as_mut() {
+                    form.kind = (form.kind + PUBLISH_KINDS.len() - 1) % PUBLISH_KINDS.len();
+                }
+            }
+            KeyCode::Right | KeyCode::Tab => {
+                if let Some(form) = self.publish.as_mut() {
+                    form.kind = (form.kind + 1) % PUBLISH_KINDS.len();
+                }
+            }
+            KeyCode::Backspace => {
+                if let Some(form) = self.publish.as_mut() {
+                    form.input.pop();
+                }
+            }
+            KeyCode::Char(c) if !c.is_control() => {
+                if let Some(form) = self.publish.as_mut()
+                    && form.input.len() + c.len_utf8() <= 4096
+                {
+                    form.input.push(c);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Validate the publication form locally, then queue `event/publish`.
+    fn submit_publish(&mut self) {
+        let Some(form) = self.publish.as_ref() else {
+            return;
+        };
+        let data = form.input.trim().to_owned();
+        if data.is_empty() {
+            if let Some(form) = self.publish.as_mut() {
+                form.note = "先填写内容，再发布。".into();
+            }
+            return;
+        }
+        let form = self.publish.take().expect("form is open");
+        let kind = PUBLISH_KINDS[form.kind.min(PUBLISH_KINDS.len() - 1)];
+        self.outbox.push(Action::Publish { kind, data });
+        self.feedback = format!("正在发布{}…", publish_kind_label(kind));
     }
 
     /// Ask the client to run a capability probe for the focused agent (live mode).
@@ -1041,6 +1138,28 @@ impl App {
             }
             if full {
                 self.feedback = "审查结论上限为 8192 字节，请分段输入。".into();
+            }
+            return;
+        }
+        if let Some(form) = self.publish.as_mut() {
+            let mut full = false;
+            for c in text.chars() {
+                let c = if matches!(c, '\n' | '\r' | '\t') {
+                    ' '
+                } else {
+                    c
+                };
+                if c.is_control() {
+                    continue;
+                }
+                if form.input.len() + c.len_utf8() > 4096 {
+                    full = true;
+                    break;
+                }
+                form.input.push(c);
+            }
+            if full {
+                self.feedback = "约束上限为 4096 字节，请分段发布。".into();
             }
             return;
         }
@@ -1458,6 +1577,59 @@ mod tests {
             app.outbox.as_slice(),
             [Action::TestConnection { pane: 2 }]
         ));
+    }
+    #[test]
+    fn publish_form_toggles_kind_and_requires_content() {
+        let mut app = App::live();
+        app.key(ctrl('u'));
+        assert!(matches!(app.outbox.as_slice(), [Action::OpenPublish]));
+        app.publish = Some(PublishForm {
+            kind: 0,
+            input: String::new(),
+            note: String::new(),
+        });
+        app.key(press(KeyCode::Enter));
+        assert!(app.publish.is_some(), "empty content must not publish");
+        assert!(app.publish.as_ref().unwrap().note.contains("内容"));
+        app.key(press(KeyCode::Right));
+        assert_eq!(app.publish.as_ref().unwrap().kind, 1, "kind cycles forward");
+        app.key(press(KeyCode::Char(' ')));
+        {
+            let form = app.publish.as_ref().unwrap();
+            assert_eq!(form.kind, 1, "a space in the text must not change the kind");
+            assert_eq!(form.input, " ", "spaces are part of the constraint text");
+        }
+        app.publish.as_mut().unwrap().input.clear();
+        app.key(press(KeyCode::Left));
+        app.key(press(KeyCode::Left));
+        assert_eq!(app.publish.as_ref().unwrap().kind, 2, "kind wraps backward");
+        app.paste("必须先保证兼容性");
+        app.key(press(KeyCode::Enter));
+        assert!(app.publish.is_none(), "a valid form is consumed");
+        match app.outbox.last() {
+            Some(Action::Publish { kind, data }) => {
+                assert_eq!(*kind, "suggestion");
+                assert_eq!(data, "必须先保证兼容性");
+            }
+            other => panic!("unexpected action: {other:?}"),
+        }
+    }
+    #[test]
+    fn publish_form_escape_cancels_and_paste_is_sanitized() {
+        let mut app = App::live();
+        app.publish = Some(PublishForm {
+            kind: 1,
+            input: String::new(),
+            note: String::new(),
+        });
+        app.paste("第一行\n第二行\x1b\t结束");
+        assert_eq!(app.publish.as_ref().unwrap().input, "第一行 第二行 结束");
+        app.paste(&"中".repeat(5000));
+        assert!(app.publish.as_ref().unwrap().input.len() <= 4096);
+        assert!(app.feedback.contains("上限"));
+        app.key(press(KeyCode::Esc));
+        assert!(app.publish.is_none());
+        assert!(app.outbox.is_empty(), "cancel must not publish");
     }
     #[test]
     fn live_cancel_and_refresh_use_the_outbox() {

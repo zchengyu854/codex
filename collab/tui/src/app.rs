@@ -720,7 +720,8 @@ impl App {
         self.feedback = "正在准备用户约束表单…".into();
     }
 
-    /// Keys while the user-publication form is open. Left/Right/Space toggles the kind.
+    /// Keys while the user-publication form is open. Left/Right/Tab toggles the kind; a space is
+    /// ordinary content, since constraints are free text.
     fn publish_key(&mut self, key: KeyEvent) {
         if self.publish.is_none() {
             return;

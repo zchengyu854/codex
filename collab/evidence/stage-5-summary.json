@@ -63,6 +63,7 @@
   "pane_status_row": "shows `<baseUrl> / <protocol> · <contextBytes> 字节预算`",
   "footer": "key hints on two lines (Tab/F2/F3/Ctrl+A, then Ctrl+T/Ctrl+U/Ctrl+E/Ctrl+G/Ctrl+P/Ctrl+N/Ctrl+K/Ctrl+R/Ctrl+C/Ctrl+Q) above the feedback line",
   "pty_render_note": "ratatui emits only changed cells, so spaces are absent from the pty byte stream; the live probe matches on non-space runs and record prefixes instead",
+  "screen_snapshot": "scripts/snapshot_terminal.py replays the pty escape stream onto a screen grid and prints the reconstructed frame, so the UI can be reviewed and archived as text; evidence/stage-5-demo-screen.txt is the 40x132 demo frame and --keys drives live mode to any modal before capturing",
   "cost_warning": "the connection probe truly calls the model and may incur cost; the feedback line states this explicitly",
   "real_api_tested": false,
   "log": "evidence/stage-5-tests.log"

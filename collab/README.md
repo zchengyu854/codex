@@ -53,9 +53,12 @@ cargo test --locked --manifest-path collab/Cargo.toml --test runtime_e2e -- --ig
 cargo test --locked --manifest-path collab/Cargo.toml -p codex-collab-tui -- --include-ignored
 cargo clippy --locked --manifest-path collab/Cargo.toml --workspace --all-targets -- -D warnings
 python3 collab/scripts/probe_terminal_live.py collab/target/debug/codex-collab-tui collab/target/debug/codex-collab-core
+python3 collab/scripts/snapshot_terminal.py collab/target/debug/codex-collab-tui --demo
 ```
 
 端到端测试运行真实 Codex 执行进程和本地模拟 API，不使用真实 API Key。可设置 `CODEX_COLLAB_BIN` 指向源码构建的执行文件；默认使用 PATH 中的 Codex。终端接入测试需先构建 `codex-collab-core`（或设置 `CODEX_COLLAB_CORE`），伪终端实时脚本使用本地行协议，不调用真实模型。
+
+`snapshot_terminal.py` 把伪终端里的画面重建成文本快照，便于审阅界面与留证：`--demo` 抓演示界面，`--live --core <路径>` 会先建一个真实会话，再用 `--keys '^U|\e[C|keep the public API stable'` 之类的按键脚本（`^X` 控制键、`\e` 转义、其余为文本）驱动到指定界面后截图。
 
 第 1 阶段双进程探针仍可独立重跑：
 

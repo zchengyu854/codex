@@ -84,6 +84,7 @@ python3 collab/scripts/probe_terminal_live.py collab/target/debug/codex-collab-t
 - 真实宿主冒烟 `real_host_drives_session_and_agent_listing` 增补：`agent/list` 返回 `contextBytes`；非 UUID 的 `id` 与越界 `contextBytes` 被拒绝；`agent/testConnection` 返回探针任务且 `connectionResult` 在无执行时返回 `verified=false` 与空能力列表；非探针任务与未知任务均被 `agent/connectionResult` 拒绝；`event/publish` 返回递增的 `revision`，且 `decision` 等非用户类型被拒绝。响应辅助函数改为跳过 `collab/update` 通知，避免任务通知与响应乱序造成误判。
 - 伪终端脚本 `probe_terminal_live.py` 增补：`Ctrl+A` 在已配置窗格预填现有 Agent（编辑路径）；`Tab` 到工作窗格后用表单新增 Agent（客户端生成 UUID、宿主校验端点，窗格渲染新模型与预算）；`Ctrl+T` 排队连接探针并确认客户端上报排队；`Ctrl+U` 切换类型到 `suggestion`、输入含空格文本并发布，再按 `F3` 确认共享记录出现 `[建议] …`——这一条同时锁住“类型选择器 → 事件 kind”与“空格不被吞掉”两个行为。
 - 本次工作区回归 **86 passed / 0 failed / 2 ignored**（core 32 / tui 54）；tui `--include-ignored` **55 passed**（含真实宿主冒烟）；Clippy（警告视为错误）与格式检查通过；demo 与 live 伪终端冒烟通过。原始日志见 `../evidence/stage-5-tests.log`，结构化结果见 `../evidence/stage-5-summary.json`。
+- 界面留证：`scripts/snapshot_terminal.py` 把伪终端画面重建成文本快照（终端只按差分输出单元格，原始字节省略大量已存在的空格，无法直接判读）。演示画面快照见 `../evidence/stage-5-demo-screen.txt`；live 模式可用 `--keys` 驱动到任意模态再截图。
 
 ## 后续段落（未开始）
 

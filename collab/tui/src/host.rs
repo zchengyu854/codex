@@ -508,6 +508,16 @@ mod tests {
             "only requirement/user_override/suggestion may be published"
         );
 
+        // Task output always carries both keys: the persisted summary and the running public draft.
+        let output = response(&host, "task/output", json!({"taskId": plain_id})).unwrap();
+        assert_eq!(output["taskId"], plain_id);
+        assert!(
+            output.get("result").is_some() && output.get("draft").is_some(),
+            "task/output must always carry result and draft"
+        );
+        assert!(output["draft"].is_null() || output["draft"]["text"].is_string());
+        assert!(response(&host, "task/output", json!({"taskId": "missing"})).is_err());
+
         host.shutdown();
         let _ = std::fs::remove_dir_all(&root);
     }

@@ -185,6 +185,13 @@ try:
         f"connection probe was not queued:\n{text[-2000:]!r}"
     )
 
+    os.write(master, b"\x0f")  # Ctrl+O opens the task output view for the probe task
+    drain(0.8)
+    text = re.sub(rb"\x1b\[[0-9;?]*[A-Za-z]", b"", bytes(output)).decode("utf-8", "replace")
+    assert "任务输出" in text, f"task output view missing:\n{text[-2000:]!r}"
+    os.write(master, b"\x1b")  # Esc closes it
+    drain(0.3)
+
     # Ctrl+U publishes a user constraint; it must reach event/publish and land in the shared log.
     output.clear()
     os.write(master, b"\x15")  # Ctrl+U
@@ -222,7 +229,7 @@ try:
     drain(0.3)
     assert termios.tcgetattr(slave) == before, "terminal input modes were not restored"
     assert b"\x1b[?1049l" in output, "alternate screen was not restored"
-    print("PASS: live session/agent rendering, coding toggle, review routing, compaction and create forms, agent configuration, connection probe, user constraint publication, masked credential form, confirmed quit, terminal restoration")
+    print("PASS: live session/agent rendering, coding toggle, review routing, compaction and create forms, agent configuration, connection probe, task output view, user constraint publication, masked credential form, confirmed quit, terminal restoration")
 finally:
     if process.poll() is None:
         process.kill()

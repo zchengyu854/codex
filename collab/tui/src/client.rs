@@ -3,8 +3,8 @@
 //! The client owns the host process, tracks in-flight requests by id, and applies responses and
 //! `collab/update` notifications to the [`App`]. It never reads the database or model adapters.
 use crate::app::{
-    ACCENT, Action, AgentForm, App, ApprovalItem, CompactForm, CreateForm, GREEN, MUTED, Pane,
-    PublishForm, ReviewForm, WARN, line, publish_kind_label,
+    ACCENT, Action, AgentForm, App, ApprovalItem, CompactForm, CreateForm, GREEN, MUTED,
+    OutputForm, Pane, PublishForm, ReviewForm, WARN, line, publish_kind_label,
 };
 use crate::host::{Host, HostEvent};
 use ratatui::style::Color;
@@ -20,6 +20,8 @@ const CATCH_UP_PAGES: u32 = 20;
 const PROBE_INTERVAL: Duration = Duration::from_millis(900);
 /// Upper bound on probe checks, so a queued probe cannot poll the host forever.
 const PROBE_MAX_CHECKS: u32 = 100;
+/// How long to wait between `task/output` refreshes while the viewed task runs.
+const OUTPUT_INTERVAL: Duration = Duration::from_millis(800);
 
 /// An in-flight capability probe: `agent/testConnection` then `agent/connectionResult` checks.
 struct Probe {
@@ -27,6 +29,13 @@ struct Probe {
     task_id: String,
     checks: u32,
     last: Instant,
+}
+
+/// An attachment the host captured for a task: its label, local path and size.
+struct Artifact {
+    label: String,
+    path: std::path::PathBuf,
+    bytes: u64,
 }
 
 /// Session selection and optional first-run creation.
@@ -51,6 +60,7 @@ enum Pending {
     TestConnection { pane: usize },
     ConnectionResult,
     Published { kind: &'static str },
+    Output { pane: usize, task_id: String },
     Review { pane: usize, task_id: String },
     Integrated,
     Revision { pages: u32 },
@@ -67,12 +77,16 @@ pub struct Client {
     after: i64,
     /// Latest task id per agent, used for cancellation and status display.
     task_of_agent: HashMap<String, String>,
-    /// File-diff attachment path per task, read locally when reviewing.
-    diff_artifacts: HashMap<String, std::path::PathBuf>,
+    /// Raw task status per task id, so the client can tell whether a task is still running.
+    task_status: HashMap<String, String>,
+    /// Attachments captured per task, read locally when reviewing a diff or a result.
+    artifacts: HashMap<String, Vec<Artifact>>,
     /// Summary and note to restore when a compaction retries after a revision change.
     compact_retry: Option<(String, String)>,
     /// Capability probe currently being polled, if any.
     probe: Option<Probe>,
+    /// Earliest next refresh of an open task output view.
+    output_poll: Option<Instant>,
 }
 
 impl Client {
@@ -84,9 +98,11 @@ impl Client {
             session: None,
             after: 0,
             task_of_agent: HashMap::new(),
-            diff_artifacts: HashMap::new(),
+            task_status: HashMap::new(),
+            artifacts: HashMap::new(),
             compact_retry: None,
             probe: None,
+            output_poll: None,
         }
     }
 
@@ -156,6 +172,42 @@ impl Client {
             self.on_action(app, action);
         }
         self.tick_probe(app);
+        self.tick_output(app);
+    }
+
+    /// Refresh an open task output view while its task is still running.
+    fn tick_output(&mut self, app: &mut App) {
+        let Some((pane, task_id, live)) = app
+            .output
+            .as_ref()
+            .map(|form| (form.pane, form.task_id.clone(), form.live))
+        else {
+            self.output_poll = None;
+            return;
+        };
+        if !live {
+            return;
+        }
+        if self
+            .pending
+            .values()
+            .any(|pending| matches!(pending, Pending::Output { .. }))
+        {
+            return;
+        }
+        if self
+            .output_poll
+            .is_some_and(|deadline| Instant::now() < deadline)
+        {
+            return;
+        }
+        self.output_poll = Some(Instant::now() + OUTPUT_INTERVAL);
+        self.request(
+            app,
+            "task/output",
+            json!({"taskId": task_id.clone()}),
+            Pending::Output { pane, task_id },
+        );
     }
 
     /// Poll a running capability probe at a fixed cadence until it reaches a terminal state.
@@ -226,12 +278,17 @@ impl Client {
             }
             Pending::Tasks => {
                 self.task_of_agent.clear();
+                self.task_status.clear();
                 for task in value.as_array().into_iter().flatten() {
                     let (Some(agent), Some(id)) = (task["agentId"].as_str(), task["id"].as_str())
                     else {
                         continue;
                     };
                     self.task_of_agent.insert(agent.to_owned(), id.to_owned());
+                    self.task_status.insert(
+                        id.to_owned(),
+                        task["status"].as_str().unwrap_or("").to_owned(),
+                    );
                     if let Some(index) = app.pane_of(agent) {
                         let status = status_label(task["status"].as_str().unwrap_or(""));
                         app.panes[index].status = status.into();
@@ -301,6 +358,7 @@ impl Client {
                 );
                 self.refresh_lists(app);
             }
+            Pending::Output { pane, task_id } => self.apply_output(app, pane, &task_id, &value),
             Pending::Review { pane, task_id } => {
                 self.open_review(app, pane, task_id, &value);
             }
@@ -436,12 +494,15 @@ impl Client {
                 if let (Some(index), Some(task_id)) =
                     (agent.and_then(|a| app.pane_of(a)), event["taskId"].as_str())
                 {
-                    let label = data["label"].as_str().unwrap_or("attachment");
-                    if label == "file diff"
-                        && let Some(path) = data["path"].as_str()
-                    {
-                        self.diff_artifacts
-                            .insert(task_id.to_owned(), std::path::PathBuf::from(path));
+                    let label = data["label"].as_str().unwrap_or("attachment").to_owned();
+                    if let Some(path) = data["path"].as_str() {
+                        let entry = self.artifacts.entry(task_id.to_owned()).or_default();
+                        entry.retain(|artifact| artifact.label != label);
+                        entry.push(Artifact {
+                            label: label.clone(),
+                            path: std::path::PathBuf::from(path),
+                            bytes: data["bytes"].as_u64().unwrap_or(0),
+                        });
                     }
                     app.push_line(index, format!("[产物] {label}"), MUTED);
                 }
@@ -644,6 +705,36 @@ impl Client {
             Action::OpenAgent { pane } => {
                 app.agent = Some(build_agent_form(app, pane));
             }
+            Action::OpenOutput { pane } => {
+                let Some(agent) = app.panes[pane].agent_id.clone() else {
+                    app.feedback = "该窗格尚未配置 Agent，没有任务输出。".into();
+                    return;
+                };
+                let Some(task_id) = self.task_of_agent.get(&agent).cloned() else {
+                    app.feedback = "该窗格还没有任务输出。".into();
+                    return;
+                };
+                app.feedback = "正在读取任务输出…".into();
+                self.request(
+                    app,
+                    "task/output",
+                    json!({"taskId": task_id.clone()}),
+                    Pending::Output { pane, task_id },
+                );
+            }
+            Action::RefreshOutput => {
+                let Some(form) = app.output.as_ref() else {
+                    return;
+                };
+                let (pane, task_id) = (form.pane, form.task_id.clone());
+                app.feedback = "正在刷新任务输出…".into();
+                self.request(
+                    app,
+                    "task/output",
+                    json!({"taskId": task_id.clone()}),
+                    Pending::Output { pane, task_id },
+                );
+            }
             Action::OpenPublish => {
                 if self.session.is_none() {
                     app.feedback = "尚未连接会话，无法发布用户约束。".into();
@@ -727,6 +818,15 @@ impl Client {
 
     /// Surface a host error; a compaction revision clash refreshes and reopens the form.
     fn on_error(&mut self, app: &mut App, pending: Pending, message: String) {
+        if matches!(pending, Pending::Output { .. }) {
+            // Stop refreshing a view whose task the host no longer serves.
+            self.output_poll = None;
+            if let Some(form) = app.output.as_mut() {
+                form.live = false;
+            }
+            app.feedback = format!("后台错误：{message}");
+            return;
+        }
         if matches!(pending, Pending::ConnectionResult) {
             // Stop polling a probe the host no longer knows about.
             self.probe = None;
@@ -746,12 +846,12 @@ impl Client {
 
     /// Build the review form from a task snapshot, reading the captured diff attachment locally.
     fn open_review(&self, app: &mut App, pane: usize, task_id: String, task: &Value) {
-        let diff = self
-            .diff_artifacts
-            .get(&task_id)
-            .and_then(|path| std::fs::read_to_string(path).ok())
-            .map(|text| clip(&text, 100_000))
-            .unwrap_or_else(|| "（尚未捕获差异附件；仍可填写结论后集成，验证由后台执行。）".into());
+        let diff = match self.read_attachment(&task_id, "file diff") {
+            body if body.is_empty() => {
+                "（尚未捕获差异附件；仍可填写结论后集成，验证由后台执行。）".into()
+            }
+            body => body,
+        };
         match build_review(pane, task_id.clone(), task, diff) {
             Ok(form) => {
                 app.review = Some(form);
@@ -762,6 +862,79 @@ impl Client {
             }
             Err(message) => app.feedback = message,
         }
+    }
+
+    /// Apply a `task/output` payload: open the view on the first read, refresh it afterwards.
+    fn apply_output(&mut self, app: &mut App, pane: usize, task_id: &str, value: &Value) {
+        let raw = self
+            .task_status
+            .get(task_id)
+            .map(String::as_str)
+            .unwrap_or("");
+        let active = matches!(raw, "queued" | "running");
+        let previous = app.output.as_ref().filter(|form| form.task_id == task_id);
+        // The full-result attachment only appears once the task finishes, so keep the read (and the
+        // user's scroll position) from the existing view until it does.
+        let body = match previous.map(|form| form.body.clone()) {
+            Some(body) if !body.is_empty() => body,
+            _ => self.read_attachment(task_id, "full result"),
+        };
+        let scroll = previous.map(|form| form.scroll).unwrap_or(0);
+        app.output = Some(OutputForm {
+            pane,
+            task_id: task_id.to_owned(),
+            status: status_label(raw).into(),
+            result: value["result"].as_str().unwrap_or("").to_owned(),
+            draft: value["draft"]["text"].as_str().unwrap_or("").to_owned(),
+            body,
+            artifacts: self.artifact_inventory(task_id),
+            scroll,
+            live: active,
+        });
+        if active {
+            self.output_poll = Some(Instant::now() + OUTPUT_INTERVAL);
+            app.feedback = format!("任务 {} 运行中，输出会自动刷新。", short(task_id));
+        } else {
+            self.output_poll = None;
+            app.feedback = format!(
+                "任务 {} 输出已加载：PgUp/PgDn 滚动，Esc 关闭。",
+                short(task_id)
+            );
+        }
+    }
+
+    /// The attachment the host captured for a task, if this client has seen its artifact event.
+    fn artifact(&self, task_id: &str, label: &str) -> Option<&Artifact> {
+        self.artifacts
+            .get(task_id)?
+            .iter()
+            .find(|artifact| artifact.label == label)
+    }
+
+    /// Read an attachment read-only; the terminal never writes or moves these files.
+    fn read_attachment(&self, task_id: &str, label: &str) -> String {
+        self.artifact(task_id, label)
+            .and_then(|artifact| std::fs::read_to_string(&artifact.path).ok())
+            .map(|text| clip(&text, 100_000))
+            .unwrap_or_default()
+    }
+
+    /// One line per attachment, so the user can open the full result outside the terminal.
+    fn artifact_inventory(&self, task_id: &str) -> String {
+        let Some(list) = self.artifacts.get(task_id) else {
+            return String::new();
+        };
+        list.iter()
+            .map(|artifact| {
+                format!(
+                    "{} · {} 字节 · {}",
+                    artifact.label,
+                    artifact.bytes,
+                    clip(&artifact.path.display().to_string(), 120)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 }
 

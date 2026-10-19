@@ -1,6 +1,6 @@
 # 阶段 5：补齐终端契约覆盖
 
-状态：第一段（Agent 配置表单）、第二段（连接自检）与第三段（用户约束发布）完成并验证。其余段落见文末“后续段落”。
+状态：第一段（Agent 配置表单）、第二段（连接自检）、第三段（用户约束发布）与第四段（任务结果查看）完成并验证；`docs/core-api.md` 的 19 个方法已全部接入。剩余段落见文末“后续段落”。
 
 ## 背景
 
@@ -37,6 +37,18 @@
 - 本地只拦空内容（提示“先填写内容，再发布”）。类型白名单由宿主强制（`user publications must be requirement, user_override, or suggestion`），客户端不复制该校验，只在类型选择器里只提供合法值。
 - 粘贴按内容清洗：换行/制表转空格，去控制字符，超限提示“约束上限为 4096 字节”。
 
+## 第四段：任务结果查看（`task/output`）
+
+- `Ctrl+O`：查看**焦点窗格最新任务**的输出。窗格没有 Agent 或还没有任务时只给提示，不发请求。
+- 模态内容分四块：
+  - `结果摘要（持久化）`：`task/output` 响应的 `result` 字段，即宿主在任务终态时落库的摘要（最长 16000 字节，超限带 `[truncated]`）。任务失败时这里就是失败原因。
+  - `运行中公开草稿`：响应的 `draft.text`，宿主内存中正在流式生成的公开消息；任务结束后该字段为 `null`。它与窗格内实时流式显示的是同一份内容，此处用于在任务结束后回看最后一段。
+  - `完整结果（附件，本机只读）`：客户端按 `artifact` 事件拿到的 `full result` 附件路径，**本地只读**读取并限长 100000 字节后显示；附件在任务结束前不存在，所以运行中为空。
+  - `产物`：该任务的附件清单（标签 · 字节数 · 路径），让用户能在终端外打开完整文件。
+- 自动刷新：任务处于 `queued`/`running` 时，客户端每 800ms 重新拉取一次 `task/output`，草稿随之滚动更新；宿主把任务置为终态后，下一次刷新读到附件、停止轮询，模态底部提示从“运行中，自动刷新”变为静态提示。任务 id 不在当前 `task/list` 快照里（例如尚未刷新）时按“已结束”处理，只拉一次。
+- 交互：`PgUp`/`PgDn` 滚动（顶部截断），`Ctrl+R` 手动重取，`Esc` 关闭；关闭时清空轮询定时器。宿主报错（如任务不存在）会停止轮询并在提示行回显宿主信息。
+- 读取附件沿用 `file diff` 审查的既有模式：客户端**只读**本机文件，不回写、不移动、不解释内容，也不把内容作为请求参数发给宿主。
+
 ## 运行
 
 ```sh
@@ -45,7 +57,7 @@ cargo run  --locked --manifest-path collab/Cargo.toml -p codex-collab-tui -- \
   --state /absolute/path/to/state --session <会话 ID>
 ```
 
-在终端内：`Ctrl+N` 新建会话 → `Tab` 选窗格 → `Ctrl+A` 配置该窗格的 Agent（并 `Ctrl+K` 设置密钥）→ `Ctrl+T` 自检 → 输入 Enter 派发任务；`Ctrl+U` 可随时发布用户约束，`F3` 查看共享记录。
+在终端内：`Ctrl+N` 新建会话 → `Tab` 选窗格 → `Ctrl+A` 配置该窗格的 Agent（并 `Ctrl+K` 设置密钥）→ `Ctrl+T` 自检 → 输入 Enter 派发任务；`Ctrl+U` 可随时发布用户约束，`Ctrl+O` 查看任务结果，`F3` 查看共享记录。
 
 ## 协议映射（新增部分）
 
@@ -58,6 +70,9 @@ cargo run  --locked --manifest-path collab/Cargo.toml -p codex-collab-tui -- \
 | 探针轮询 | `agent/connectionResult`（900ms，≤100 次） | 提示行进度；终态写入窗格、刷新列表 |
 | Ctrl+U | —（本地打开表单） | 约束模态显示类型选择器与内容 |
 | 约束模态 Enter | `event/publish` | 提示行显示版本号，随即 `event/list` 把记录写入共享记录 |
+| Ctrl+O | `task/output` | 结果模态显示持久化摘要、运行中草稿与附件清单 |
+| 结果模态轮询 | `task/output`（800ms，任务运行中） | 草稿随刷新更新；终态后读取 `full result` 附件并停止轮询 |
+| 任务结束 | `artifact` 通知（`event/list`） | 记录 `full result` / `file diff` 附件路径，供结果查看与差异审查**本地只读**读取 |
 
 ## 安全与边界
 
@@ -68,6 +83,7 @@ cargo run  --locked --manifest-path collab/Cargo.toml -p codex-collab-tui -- \
 - 类型白名单、内容长度与注入时机全部由宿主决定；客户端不把用户输入拼进任何命令或路径，文本只作为 `event/publish` 的 `data` 字段传输。
 - 配置 Agent 与连接自检都只用宿主已支持的方法，未新增远程或文件访问面；终端仍只经行协议交互。
 - 运行中的任务不能被重配（宿主拒绝），表单只做提示，不代为取消。
+- 结果查看只读宿主**已落盘**的附件（`full result`、`file diff`），且限长 100000 字节；路径来自宿主的 `artifact` 事件，客户端不接受用户提供的路径，也不遍历目录。终端的写权限仍仅限宿主自身的状态写入。
 
 ## 验证
 
@@ -78,15 +94,17 @@ cargo clippy --locked --manifest-path collab/Cargo.toml --workspace --all-target
 cargo fmt    --manifest-path collab/Cargo.toml -p codex-collab-core -p codex-collab-tui --check
 python3 collab/scripts/probe_terminal.py collab/target/debug/codex-collab-tui
 python3 collab/scripts/probe_terminal_live.py collab/target/debug/codex-collab-tui collab/target/debug/codex-collab-core
+collab/scripts/stage5_evidence.sh   # 重放以上全部步骤并重写 evidence/stage-5-tests.log
 ```
 
-- 单元测试新增：配置表单的提交与字段映射、空模型/非法 URL/越界预算的拒绝与焦点跳转、协议切换与字段循环、Esc 取消、按字段清洗的粘贴；`build_agent_form` 对空窗格生成合法 UUID、对已有 Agent 预填 id/角色/模型/协议/预算；Base URL 校验与宿主规则逐条对照；连接自检的排他性（未配置窗格拒绝）、`probe_outcome` 对进行中/通过/未通过/待调度的分支；约束表单的类型前后循环与回绕、空内容拒绝、**空格属于正文而非切换键**、粘贴清洗与超限、Esc 取消；三个模态的渲染与底部键位提示。
-- 真实宿主冒烟 `real_host_drives_session_and_agent_listing` 增补：`agent/list` 返回 `contextBytes`；非 UUID 的 `id` 与越界 `contextBytes` 被拒绝；`agent/testConnection` 返回探针任务且 `connectionResult` 在无执行时返回 `verified=false` 与空能力列表；非探针任务与未知任务均被 `agent/connectionResult` 拒绝；`event/publish` 返回递增的 `revision`，且 `decision` 等非用户类型被拒绝。响应辅助函数改为跳过 `collab/update` 通知，避免任务通知与响应乱序造成误判。
-- 伪终端脚本 `probe_terminal_live.py` 增补：`Ctrl+A` 在已配置窗格预填现有 Agent（编辑路径）；`Tab` 到工作窗格后用表单新增 Agent（客户端生成 UUID、宿主校验端点，窗格渲染新模型与预算）；`Ctrl+T` 排队连接探针并确认客户端上报排队；`Ctrl+U` 切换类型到 `suggestion`、输入含空格文本并发布，再按 `F3` 确认共享记录出现 `[建议] …`——这一条同时锁住“类型选择器 → 事件 kind”与“空格不被吞掉”两个行为。
-- 本次工作区回归 **86 passed / 0 failed / 2 ignored**（core 32 / tui 54）；tui `--include-ignored` **55 passed**（含真实宿主冒烟）；Clippy（警告视为错误）与格式检查通过；demo 与 live 伪终端冒烟通过。原始日志见 `../evidence/stage-5-tests.log`，结构化结果见 `../evidence/stage-5-summary.json`。
-- 界面留证：`scripts/snapshot_terminal.py` 把伪终端画面重建成文本快照（终端只按差分输出单元格，原始字节省略大量已存在的空格，无法直接判读）。演示画面快照见 `../evidence/stage-5-demo-screen.txt`；live 模式可用 `--keys` 驱动到任意模态再截图。
+- 单元测试新增：配置表单的提交与字段映射、空模型/非法 URL/越界预算的拒绝与焦点跳转、协议切换与字段循环、Esc 取消、按字段清洗的粘贴；`build_agent_form` 对空窗格生成合法 UUID、对已有 Agent 预填 id/角色/模型/协议/预算；Base URL 校验与宿主规则逐条对照；连接自检的排他性（未配置窗格拒绝）、`probe_outcome` 对进行中/通过/未通过/待调度的分支；约束表单的类型前后循环与回绕、空内容拒绝、**空格属于正文而非切换键**、粘贴清洗与超限、Esc 取消；结果查看的打开动作、PgUp/PgDn 滚动与顶部截断、`Ctrl+R` 重取、Esc 关闭；四个模态的渲染与底部键位提示。
+- 底部键位提示拆成两行后新增宽度回归：以 132 列演示帧渲染，断言 `Ctrl+A 配置`…`Ctrl+Q 退出` 全部完整可见（`Ctrl+Q` 移到第一行，第二行改为纯任务键位）；小尺寸遍历新增结果模态，覆盖 `scroll = usize::MAX` 的截断路径。
+- 真实宿主冒烟 `real_host_drives_session_and_agent_listing` 增补：`agent/list` 返回 `contextBytes`；非 UUID 的 `id` 与越界 `contextBytes` 被拒绝；`agent/testConnection` 返回探针任务且 `connectionResult` 在无执行时返回 `verified=false` 与空能力列表；非探针任务与未知任务均被 `agent/connectionResult` 拒绝；`event/publish` 返回递增的 `revision`，且 `decision` 等非用户类型被拒绝；`task/output` 恒返回 `taskId`/`result`/`draft` 三键（`draft` 为 `null` 或带 `text`），未知任务被拒绝。响应辅助函数改为跳过 `collab/update` 通知，避免任务通知与响应乱序造成误判。
+- 伪终端脚本 `probe_terminal_live.py` 增补：`Ctrl+A` 在已配置窗格预填现有 Agent（编辑路径）；`Tab` 到工作窗格后用表单新增 Agent（客户端生成 UUID、宿主校验端点，窗格渲染新模型与预算）；`Ctrl+T` 排队连接探针并确认客户端上报排队；`Ctrl+O` 打开探针任务的结果模态并断言标题渲染，`Esc` 关闭；`Ctrl+U` 切换类型到 `suggestion`、输入含空格文本并发布，再按 `F3` 确认共享记录出现 `[建议] …`——这一条同时锁住“类型选择器 → 事件 kind”与“空格不被吞掉”两个行为。
+- 本次工作区回归 **89 passed / 0 failed / 2 ignored**（core 32 / tui 57）；tui `--include-ignored` **58 passed**（含真实宿主冒烟）；Clippy（警告视为错误）与格式检查通过；demo 与 live 伪终端冒烟通过。原始日志见 `../evidence/stage-5-tests.log`，结构化结果见 `../evidence/stage-5-summary.json`；日志由 `scripts/stage5_evidence.sh` 一条命令重放（构建 → 两组测试 → clippy → fmt → 两个 pty 冒烟 → 两张快照）。
+- 界面留证：`scripts/snapshot_terminal.py` 把伪终端画面重建成文本快照（终端只按差分输出单元格，原始字节省略大量已存在的空格，无法直接判读）。演示画面快照见 `../evidence/stage-5-demo-screen.txt`，结果模态快照见 `../evidence/stage-5-output-screen.txt`（live 模式跑出真实的探针任务失败结果）；live 模式可用 `--keys` 驱动到任意模态再截图。
+- 快照器本身的一条宽字形修正：写双宽字符的第二格时会清理**上一帧**遗留的“首格”标记，否则下一次写入会把新字符的续格清成空格（表现为 CJK 词中间多出一个空格）。结果模态标题因此从 `摘 要` 恢复为 `摘要`。
 
 ## 后续段落（未开始）
 
-1. **结果查看**：`task/output`，查看任务持久化结果摘要与运行中公开草稿（完整结果在附件文件）。
-2. **输入编辑增强**：光标编辑与命令历史（当前仅末尾追加与退格）。
+1. **输入编辑增强**：光标编辑与命令历史（当前仅末尾追加与退格）。

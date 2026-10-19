@@ -1,4 +1,6 @@
-use crate::app::{ACCENT, App, GREEN, MUTED, PUBLISH_KINDS, WARN, line, publish_kind_label};
+use crate::app::{
+    ACCENT, App, GREEN, MUTED, PUBLISH_KINDS, WARN, line, publish_kind_label, short_id,
+};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
@@ -87,7 +89,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         Paragraph::new(vec![
             Line::styled(
                 format!(
-                    "[{} {}] 编码:{}  Tab 焦点  F2 放大  F3 共享  Ctrl+A 配置",
+                    "[{} {}] 编码:{}  Tab 焦点  F2 放大  F3 共享  Ctrl+A 配置  Ctrl+Q 退出",
                     app.focused + 1,
                     focused.role,
                     if app.coding { "开" } else { "关" }
@@ -95,7 +97,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
                 Style::default().fg(ACCENT),
             ),
             Line::styled(
-                "Ctrl+T 自检  Ctrl+U 约束  Ctrl+E 编码  Ctrl+G 审查集成  Ctrl+P 压缩  Ctrl+N 新建  Ctrl+K 密钥  Ctrl+R 刷新  Ctrl+C 停止  Ctrl+Q 退出",
+                "Ctrl+T 自检  Ctrl+U 约束  Ctrl+O 结果  Ctrl+E 编码  Ctrl+G 审查集成  Ctrl+P 压缩  Ctrl+N 新建  Ctrl+K 密钥  Ctrl+R 刷新  Ctrl+C 停止",
                 Style::default().fg(ACCENT),
             ),
             Line::styled(app.feedback.as_str(), Style::default().fg(MUTED)),
@@ -249,6 +251,57 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             popup,
         );
     }
+    if let Some(form) = &app.output {
+        let mut lines = vec![line(
+            format!("任务 {} · {}", short_id(&form.task_id), form.status),
+            MUTED,
+        )];
+        if !form.result.is_empty() {
+            lines.push(line("结果摘要（持久化）：", MUTED));
+            push_block(&mut lines, &form.result, 200);
+        }
+        if !form.draft.is_empty() {
+            lines.push(line("运行中公开草稿：", MUTED));
+            push_block(&mut lines, &form.draft, 200);
+        }
+        if !form.body.is_empty() {
+            lines.push(line("完整结果（附件，本机只读）：", MUTED));
+            push_block(&mut lines, &form.body, 400);
+        }
+        if !form.artifacts.is_empty() {
+            lines.push(line("产物：", MUTED));
+            for text in form.artifacts.lines() {
+                lines.push(line(text.to_string(), MUTED));
+            }
+        }
+        if form.result.is_empty() && form.draft.is_empty() && form.body.is_empty() {
+            lines.push(line("（暂无输出；任务可能仍在排队。）", MUTED));
+        }
+        lines.push(line(
+            if form.live {
+                "运行中，自动刷新 · PgUp/PgDn 滚动 · Ctrl+R 刷新 · Esc 关闭"
+            } else {
+                "PgUp/PgDn 滚动 · Ctrl+R 刷新 · Esc 关闭"
+            },
+            GREEN,
+        ));
+        // Keep the key hints visible even on short terminals.
+        let height = full.height.saturating_sub(2).clamp(3, 34);
+        let popup = centered(full, full.width.min(120), height);
+        frame.render_widget(Clear, popup);
+        frame.render_widget(
+            Paragraph::new(lines)
+                .style(Style::default().bg(BACKGROUND).fg(FOREGROUND))
+                .wrap(Wrap { trim: false })
+                .scroll((form.scroll.min(u16::MAX as usize) as u16, 0))
+                .block(
+                    Block::bordered()
+                        .title(" 任务输出 · 摘要、公开草稿与附件 ")
+                        .border_style(Style::default().fg(ACCENT)),
+                ),
+            popup,
+        );
+    }
     if let Some(form) = &app.publish {
         let selector = PUBLISH_KINDS
             .iter()
@@ -379,6 +432,20 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
                 ),
             popup,
         );
+    }
+}
+
+/// Push the first `limit` lines of a long block, noting how many were hidden.
+fn push_block(lines: &mut Vec<Line<'static>>, text: &str, limit: usize) {
+    let total = text.lines().count();
+    for text in text.lines().take(limit) {
+        lines.push(line(text.to_string(), FOREGROUND));
+    }
+    if total > limit {
+        lines.push(line(
+            format!("…（共 {total} 行，已截断显示 {limit} 行）"),
+            MUTED,
+        ));
     }
 }
 
@@ -594,6 +661,28 @@ mod tests {
         assert!(text.contains("cargo test"));
     }
     #[test]
+    fn output_modal_renders_result_draft_and_attachments() {
+        use crate::app::OutputForm;
+        let mut app = App::live();
+        app.output = Some(OutputForm {
+            pane: 0,
+            task_id: "11111111-2222-4333-8444-555555555555".into(),
+            status: "已完成".into(),
+            result: "加了重试与退避。".into(),
+            draft: String::new(),
+            body: "完整输出第一行".into(),
+            artifacts: "full result · 128 字节 · /tmp/state/attachments/t/1.txt".into(),
+            scroll: 0,
+            live: false,
+        });
+        let text = screen(&mut app, 140, 42);
+        assert!(text.contains("任务输出"));
+        assert!(text.contains("加了重试与退避。"));
+        assert!(text.contains("完整输出第一行"));
+        assert!(text.contains("full result"));
+        assert!(text.contains("Ctrl+O 结果"), "the footer advertises Ctrl+O");
+    }
+    #[test]
     fn publish_modal_renders_kind_selector_and_content() {
         use crate::app::PublishForm;
         let mut app = App::live();
@@ -678,12 +767,42 @@ mod tests {
         assert!(text.contains("工作（worker）"));
     }
     #[test]
+    fn footer_key_hints_fit_the_demo_frame() {
+        // The 132-column demo frame must show every hint, including the last one, unabridged.
+        let text = screen(&mut App::demo(), 132, 40);
+        for hint in [
+            "Ctrl+A 配置",
+            "Ctrl+T 自检",
+            "Ctrl+U 约束",
+            "Ctrl+O 结果",
+            "Ctrl+G 审查集成",
+            "Ctrl+C 停止",
+            "Ctrl+Q 退出",
+        ] {
+            assert!(text.contains(hint), "footer hint {hint:?} is clipped");
+        }
+    }
+    #[test]
     fn tiny_sizes_and_quit_popup_do_not_panic() {
+        use crate::app::OutputForm;
         for width in [0, 1, 7, 15, 80] {
             for height in [0, 1, 3, 10] {
                 let mut app = App::demo();
                 app.shared = true;
                 app.confirm_quit = true;
+                screen(&mut app, width, height);
+                app.confirm_quit = false;
+                app.output = Some(OutputForm {
+                    pane: 0,
+                    task_id: "task-1".into(),
+                    status: "工作中".into(),
+                    result: "结果".into(),
+                    draft: "草稿".into(),
+                    body: String::new(),
+                    artifacts: String::new(),
+                    scroll: usize::MAX,
+                    live: true,
+                });
                 screen(&mut app, width, height);
             }
         }

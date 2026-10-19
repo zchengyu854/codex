@@ -3,20 +3,23 @@
   "segments": [
     "5-1 agent configuration form (agent/configure)",
     "5-2 connection self-check (agent/testConnection / agent/connectionResult)",
-    "5-3 user constraint publication (event/publish)"
+    "5-3 user constraint publication (event/publish)",
+    "5-4 task output view (task/output)"
   ],
   "date": "2026-10-19",
-  "scope": "terminal client contract coverage: configure an agent from the terminal, run a capability self-check, and publish user constraints, closing the create-session -> configure-agents -> verify-endpoint -> steer-the-session loop",
+  "scope": "terminal client contract coverage: configure an agent from the terminal, run a capability self-check, publish user constraints, and read a task's persisted result, closing the create-session -> configure-agents -> verify-endpoint -> steer-the-session -> read-the-result loop",
   "contract_coverage": {
     "core_methods_implemented": 19,
     "tui_methods_before": 14,
-    "tui_methods_after": 18,
+    "tui_methods_after": 19,
     "newly_wired": [
       "agent/configure",
       "agent/testConnection",
       "agent/connectionResult",
-      "event/publish"
-    ]
+      "event/publish",
+      "task/output"
+    ],
+    "remaining": "none; every method in docs/core-api.md is reachable from the terminal"
   },
   "agent_configuration": {
     "key": "Ctrl+A",
@@ -41,30 +44,40 @@
     "host_authority": "the kind whitelist, length limits and injection timing live in the host; the client only offers legal kinds and does not duplicate the check",
     "irreversible": "a published constraint cannot be retracted from the terminal; records are append-only by design and the modal says so"
   },
+  "task_output": {
+    "key": "Ctrl+O",
+    "target": "the focused pane's latest task from task/list; a pane without an agent or without a task only gets a note, no request is sent",
+    "content": "persisted result summary (`result`, up to 16000 bytes, `[truncated]` marker), running public message draft (`draft.text`, empty once the task ends), the `full result` attachment read locally read-only and clipped to 100000 bytes, and an attachment inventory (label / bytes / path)",
+    "refresh": "while the task is queued/running the client re-reads task/output every 800ms so the draft rolls; once the host marks the task terminal the next read picks up the attachment, polling stops and the hint switches from `运行中，自动刷新` to the static form. A task id absent from the current task/list snapshot is treated as finished and read once",
+    "keys": "PgUp/PgDn scroll, Ctrl+R re-reads, Esc closes and clears the poll deadline; a host error stops polling and is echoed verbatim",
+    "attachment_reads": "the client only reads files the host itself wrote (full result / file diff); paths come from artifact events, never from user input, and the client never writes, moves or lists directories"
+  },
   "suite": {
-    "passed": 86,
+    "passed": 89,
     "failed": 0,
     "ignored": 2,
     "groups": {
       "core": 32,
-      "tui": 54
+      "tui": 57
     },
     "ignored_reason": "core runtime_e2e needs installed Codex; tui real-host smoke needs a built codex-collab-core"
   },
   "opt_in": {
-    "tui_include_ignored_passed": 55,
-    "real_host_smoke": "passed: session/create, agent/configure, agent/list (carries contextBytes), task/list, approval/list, task/get, task/integrate, context/compact, agent/testConnection, agent/connectionResult, event/publish; non-UUID agent id and out-of-range contextBytes rejected; connectionResult reports verified=false with empty capabilities and rejects non-probe and unknown tasks; event/publish returns an increasing revision and rejects non-user kinds such as decision; unknown approval/task ids and stale compaction revisions fail closed, empty summary rejected",
+    "tui_include_ignored_passed": 58,
+    "real_host_smoke": "passed: session/create, agent/configure, agent/list (carries contextBytes), task/list, approval/list, task/get, task/integrate, context/compact, agent/testConnection, agent/connectionResult, event/publish, task/output; non-UUID agent id and out-of-range contextBytes rejected; connectionResult reports verified=false with empty capabilities and rejects non-probe and unknown tasks; event/publish returns an increasing revision and rejects non-user kinds such as decision; task/output always returns taskId/result/draft (draft null or carrying text) and rejects unknown tasks; unknown approval/task ids and stale compaction revisions fail closed, empty summary rejected",
     "core_e2e_rerun": false
   },
   "format_check": "passed",
   "clippy_warnings_as_errors": "passed",
   "pty_demo_smoke": "passed: four panes, paste/send, stop, confirmed quit, terminal restoration, non-TTY rejection",
-  "pty_live_smoke": "passed: seeded real session+agent via line protocol; Ctrl+A prefilled the seeded coordinator (edit path); Tabbed to a worker pane and added a second agent through the form; Ctrl+T queued a connection probe; Ctrl+U selected suggestion, typed text containing spaces, published, and F3 confirmed `[建议] keep … stable` in the shared records; coding toggle, review/compaction/create routing; masked credential form; confirmed quit and terminal restoration",
+  "pty_live_smoke": "passed: seeded real session+agent via line protocol; Ctrl+A prefilled the seeded coordinator (edit path); Tabbed to a worker pane and added a second agent through the form; Ctrl+T queued a connection probe; Ctrl+O opened the probe task's output view and rendered its title, Esc closed it; Ctrl+U selected suggestion, typed text containing spaces, published, and F3 confirmed `[建议] keep … stable` in the shared records; coding toggle, review/compaction/create routing; masked credential form; confirmed quit and terminal restoration",
   "pane_status_row": "shows `<baseUrl> / <protocol> · <contextBytes> 字节预算`",
-  "footer": "key hints on two lines (Tab/F2/F3/Ctrl+A, then Ctrl+T/Ctrl+U/Ctrl+E/Ctrl+G/Ctrl+P/Ctrl+N/Ctrl+K/Ctrl+R/Ctrl+C/Ctrl+Q) above the feedback line",
+  "footer": "key hints on two lines above the feedback line: pane/global keys (Tab/F2/F3/Ctrl+A/Ctrl+Q) then task keys (Ctrl+T/Ctrl+U/Ctrl+O/Ctrl+E/Ctrl+G/Ctrl+P/Ctrl+N/Ctrl+K/Ctrl+R/Ctrl+C); a 132-column render test asserts no hint is clipped",
   "pty_render_note": "ratatui emits only changed cells, so spaces are absent from the pty byte stream; the live probe matches on non-space runs and record prefixes instead",
-  "screen_snapshot": "scripts/snapshot_terminal.py replays the pty escape stream onto a screen grid and prints the reconstructed frame, so the UI can be reviewed and archived as text; evidence/stage-5-demo-screen.txt is the 40x132 demo frame and --keys drives live mode to any modal before capturing",
+  "screen_snapshot": "scripts/snapshot_terminal.py replays the pty escape stream onto a screen grid and prints the reconstructed frame, so the UI can be reviewed and archived as text; evidence/stage-5-demo-screen.txt is the 40x132 demo frame, evidence/stage-5-output-screen.txt is the live task output view (the probe task really fails without a credential, so the modal shows a real persisted result), and --keys drives live mode to any modal before capturing",
+  "snapshot_tool_fix": "when a double-width glyph claims a cell, the replayer now also clears a stale leading flag left there by the previous frame; without it the following write blanked the new glyph's trailing cell and CJK words rendered with a spurious space (the modal title showed `摘 要` instead of `摘要`)",
   "cost_warning": "the connection probe truly calls the model and may incur cost; the feedback line states this explicitly",
   "real_api_tested": false,
+  "evidence_script": "scripts/stage5_evidence.sh replays the whole set (build -> workspace tests -> opt-in tests -> clippy -> fmt -> both pty probes -> both snapshots) and rewrites evidence/stage-5-tests.log",
   "log": "evidence/stage-5-tests.log"
 }

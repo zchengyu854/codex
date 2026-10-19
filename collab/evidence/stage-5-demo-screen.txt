@@ -35,6 +35,6 @@
 │                                                         ││                                                                       │
 │❯                                                        ││❯                                                                      │
 └─────────────────────────────────────────────────────────┘└───────────────────────────────────────────────────────────────────────┘
-[1 主控] 编码:关  Tab 焦点  F2 放大  F3 共享  Ctrl+A 配置
-Ctrl+T 自检  Ctrl+U 约束  Ctrl+E 编码  Ctrl+G 审查集成  Ctrl+P 压缩  Ctrl+N 新建  Ctrl+K 密钥  Ctrl+R 刷新  Ctrl+C 停止  Ctrl+Q 退出
+[1 主控] 编码:关  Tab 焦点  F2 放大  F3 共享  Ctrl+A 配置  Ctrl+Q 退出
+Ctrl+T 自检  Ctrl+U 约束  Ctrl+O 结果  Ctrl+E 编码  Ctrl+G 审查集成  Ctrl+P 压缩  Ctrl+N 新建  Ctrl+K 密钥  Ctrl+R 刷新  Ctrl+C 停止
 模拟记录；不会调用模型、读取密钥或修改项目。

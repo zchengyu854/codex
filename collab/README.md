@@ -33,7 +33,7 @@ cargo run  --locked --manifest-path collab/Cargo.toml -p codex-collab-tui -- \
   --state /absolute/path/to/state --session <会话 ID>
 ```
 
-`--demo` 与实时模式二选一；未指定 `--session` 时使用第一个会话，没有任何会话且给出 `--repository` 时按其创建（需至少一条 `--validation`），否则弹出创建表单。Enter 派发任务、Ctrl+C 取消、Ctrl+R 刷新、Ctrl+A 配置 Agent（角色由窗格位置决定，`agent/configure`）、Ctrl+T 连接自检（`agent/testConnection`，会真实调用模型）、Ctrl+U 发布用户约束（`event/publish`，需求/用户覆盖优先于模型决策）、Ctrl+K 设置密钥、Ctrl+E 切换编码任务、Ctrl+G 审查并集成、Ctrl+P 压缩上下文、Ctrl+N 新建会话、F3 共享记录；待审操作会弹出审批模态（Y 批准 / N 拒绝）。详见阶段 4 与阶段 5 文档。
+`--demo` 与实时模式二选一；未指定 `--session` 时使用第一个会话，没有任何会话且给出 `--repository` 时按其创建（需至少一条 `--validation`），否则弹出创建表单。Enter 派发任务、Ctrl+C 取消、Ctrl+R 刷新、Ctrl+A 配置 Agent（角色由窗格位置决定，`agent/configure`）、Ctrl+T 连接自检（`agent/testConnection`，会真实调用模型）、Ctrl+U 发布用户约束（`event/publish`，需求/用户覆盖优先于模型决策）、Ctrl+O 查看任务输出（`task/output`，持久化摘要 + 运行中公开草稿 + 只读附件）、Ctrl+K 设置密钥、Ctrl+E 切换编码任务、Ctrl+G 审查并集成、Ctrl+P 压缩上下文、Ctrl+N 新建会话、F3 共享记录；待审操作会弹出审批模态（Y 批准 / N 拒绝）。详见阶段 4 与阶段 5 文档。
 
 ## 运行后台
 
@@ -54,6 +54,7 @@ cargo test --locked --manifest-path collab/Cargo.toml -p codex-collab-tui -- --i
 cargo clippy --locked --manifest-path collab/Cargo.toml --workspace --all-targets -- -D warnings
 python3 collab/scripts/probe_terminal_live.py collab/target/debug/codex-collab-tui collab/target/debug/codex-collab-core
 python3 collab/scripts/snapshot_terminal.py collab/target/debug/codex-collab-tui --demo
+collab/scripts/stage5_evidence.sh   # 重放以上步骤并重写阶段 5 证据日志与快照
 ```
 
 端到端测试运行真实 Codex 执行进程和本地模拟 API，不使用真实 API Key。可设置 `CODEX_COLLAB_BIN` 指向源码构建的执行文件；默认使用 PATH 中的 Codex。终端接入测试需先构建 `codex-collab-core`（或设置 `CODEX_COLLAB_CORE`），伪终端实时脚本使用本地行协议，不调用真实模型。

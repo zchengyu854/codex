@@ -16,7 +16,7 @@ pub fn line(text: impl Into<String>, color: Color) -> Line<'static> {
 }
 
 /// Shorten an id for display without splitting a UTF-8 sequence.
-fn short_id(id: &str) -> String {
+pub fn short_id(id: &str) -> String {
     let mut end = id.len().min(8);
     while !id.is_char_boundary(end) {
         end -= 1;
@@ -178,6 +178,10 @@ pub enum Action {
         kind: &'static str,
         data: String,
     },
+    OpenOutput {
+        pane: usize,
+    },
+    RefreshOutput,
 }
 
 /// Context compaction form: a summary plus the exact session revision it is based on.
@@ -195,6 +199,23 @@ pub struct CreateForm {
     /// Focused field: 0 repository, 1 validation, 2 requirement.
     pub field: usize,
     pub note: String,
+}
+
+/// Task output view (`task/output`): the persisted result summary, the running public draft and the
+/// full-result attachment the client reads locally.
+pub struct OutputForm {
+    pub pane: usize,
+    pub task_id: String,
+    pub status: String,
+    pub result: String,
+    pub draft: String,
+    /// Locally read attachment body, clipped; empty while the attachment does not exist yet.
+    pub body: String,
+    /// Attachment inventory line (label, size, path).
+    pub artifacts: String,
+    pub scroll: usize,
+    /// Whether the client keeps refreshing while the task is still running.
+    pub live: bool,
 }
 
 /// The user publication kinds accepted by `event/publish`, in toggle order.
@@ -306,6 +327,7 @@ pub struct App {
     pub create: Option<CreateForm>,
     pub agent: Option<AgentForm>,
     pub publish: Option<PublishForm>,
+    pub output: Option<OutputForm>,
     pub coding: bool,
 }
 
@@ -340,6 +362,7 @@ impl App {
             create: None,
             agent: None,
             publish: None,
+            output: None,
             coding: false,
         }
     }
@@ -457,6 +480,7 @@ impl App {
             create: None,
             agent: None,
             publish: None,
+            output: None,
             coding: false,
         }
     }
@@ -490,6 +514,10 @@ impl App {
         // Quit must work even while a modal owns the keyboard.
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('q') {
             self.confirm_quit = true;
+            return false;
+        }
+        if self.output.is_some() {
+            self.output_key(key);
             return false;
         }
         if self.publish.is_some() {
@@ -530,6 +558,7 @@ impl App {
                 KeyCode::Char('a') if self.mode == Mode::Live => self.open_agent(),
                 KeyCode::Char('t') if self.mode == Mode::Live => self.open_probe(),
                 KeyCode::Char('u') if self.mode == Mode::Live => self.open_publish(),
+                KeyCode::Char('o') if self.mode == Mode::Live => self.open_output(),
                 KeyCode::Char('e') if self.mode == Mode::Live => {
                     self.coding = !self.coding;
                     self.feedback = if self.coding {
@@ -708,6 +737,40 @@ impl App {
                     && field_mut(form).len() + c.len_utf8() <= 4096
                 {
                     field_mut(form).push(c);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Ask the client to open the task output view for the focused pane (live mode).
+    fn open_output(&mut self) {
+        self.outbox.push(Action::OpenOutput { pane: self.focused });
+        self.feedback = "正在读取任务输出…".into();
+    }
+
+    /// Keys while the task output view is open. Page keys scroll, Ctrl+R re-reads the task.
+    fn output_key(&mut self, key: KeyEvent) {
+        if self.output.is_none() {
+            return;
+        }
+        match key.code {
+            KeyCode::Esc => {
+                self.output = None;
+                self.feedback = "已关闭任务输出。".into();
+            }
+            KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.outbox.push(Action::RefreshOutput);
+                self.feedback = "正在刷新任务输出…".into();
+            }
+            KeyCode::PageUp => {
+                if let Some(form) = self.output.as_mut() {
+                    form.scroll = form.scroll.saturating_sub(10);
+                }
+            }
+            KeyCode::PageDown => {
+                if let Some(form) = self.output.as_mut() {
+                    form.scroll = form.scroll.saturating_add(10);
                 }
             }
             _ => {}
@@ -1561,6 +1624,39 @@ mod tests {
         assert!(check_base_url("https://user:pw@example.com").is_err());
         assert!(check_base_url("https://example.com/v1?x=1").is_err());
         assert!(check_base_url("https://example.com/v1#f").is_err());
+    }
+    #[test]
+    fn output_view_opens_scrolls_refreshes_and_closes() {
+        let mut app = App::live();
+        app.key(ctrl('o'));
+        assert!(matches!(
+            app.outbox.as_slice(),
+            [Action::OpenOutput { pane: 0 }]
+        ));
+        app.output = Some(OutputForm {
+            pane: 0,
+            task_id: "task-1".into(),
+            status: "工作中".into(),
+            result: "已完成一半".into(),
+            draft: "正在写…".into(),
+            body: String::new(),
+            artifacts: "full result · 12 字节 · /tmp/x.txt".into(),
+            scroll: 0,
+            live: true,
+        });
+        app.key(press(KeyCode::PageDown));
+        assert_eq!(app.output.as_ref().unwrap().scroll, 10);
+        app.key(press(KeyCode::PageUp));
+        app.key(press(KeyCode::PageUp));
+        assert_eq!(
+            app.output.as_ref().unwrap().scroll,
+            0,
+            "scrolling stops at the top"
+        );
+        app.key(ctrl('r'));
+        assert!(matches!(app.outbox.last(), Some(Action::RefreshOutput)));
+        app.key(press(KeyCode::Esc));
+        assert!(app.output.is_none());
     }
     #[test]
     fn probe_needs_a_configured_agent_then_queues() {

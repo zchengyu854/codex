@@ -33,6 +33,7 @@ const HELP: &str = "用法:
 
 操作：Tab/Shift+Tab 焦点 · F2 放大 · F3 共享记录 · Ctrl+R 刷新
       Ctrl+A 配置 Agent · Ctrl+T 连接自检 · Ctrl+U 用户约束 · Ctrl+K 密钥 · Ctrl+E 编码开关
+      Ctrl+O 任务输出（摘要、公开草稿与附件）
       Ctrl+G 审查集成 · Ctrl+P 压缩上下文 · Ctrl+N 新建会话
       Ctrl+C 取消当前窗格任务 · Ctrl+Q 退出";
 

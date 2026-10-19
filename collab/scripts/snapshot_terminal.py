@@ -191,7 +191,13 @@ class Screen:
             return
         row = self.row
         if value == CONTINUATION:
-            # Only ever written together with the leading cell, which just claimed the glyph.
+            # Only ever written together with the leading cell, which just claimed the glyph. A
+            # stale leading flag here belongs to a glyph from an earlier frame whose trailing cell
+            # this write just took over, so drop both halves of it.
+            if self.wide[row][col]:
+                self.wide[row][col] = False
+                if col + 1 < self.cols and self.cells[row][col + 1] == CONTINUATION:
+                    self.cells[row][col + 1] = " "
             self.cells[row][col] = CONTINUATION
             return
         if self.wide[row][col]:

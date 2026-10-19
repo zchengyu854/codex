@@ -1,0 +1,40 @@
+{
+  "stage": "5",
+  "segments": [
+    "5-1 agent configuration form (agent/configure)"
+  ],
+  "date": "2026-10-19",
+  "scope": "terminal client contract coverage: configure an agent (identity, role, model, base URL, protocol, contextBytes) from the terminal, closing the create-session -> configure-agents loop",
+  "contract_coverage": {
+    "core_methods_implemented": 19,
+    "tui_methods_before": 14,
+    "tui_methods_after": 15,
+    "newly_wired": ["agent/configure"]
+  },
+  "role_mapping": "pane 1 -> coordinator, panes 2-4 -> worker; the user cannot pick a role, matching the agent/list pane mapping",
+  "id_generation": "empty pane gets uuid::Uuid::new_v4(); an existing agent keeps its id and prefills model/baseUrl/protocol/contextBytes from agent/list",
+  "local_validation": "model 1..200 bytes; contextBytes 4096..1000000; baseUrl mirrors core Agent::validate (https, or http on localhost/127.0.0.1/[::1]; no credentials/query/fragment). Host remains authoritative and its errors are surfaced verbatim",
+  "protocol_field": "toggle via Left/Right/Space between responses and chat_completions; not free text",
+  "suite": {
+    "passed": 81,
+    "failed": 0,
+    "ignored": 2,
+    "groups": {
+      "core": 32,
+      "tui": 49
+    },
+    "ignored_reason": "core runtime_e2e needs installed Codex; tui real-host smoke needs a built codex-collab-core"
+  },
+  "opt_in": {
+    "tui_include_ignored_passed": 50,
+    "real_host_smoke": "passed: session/create, agent/configure, agent/list (carries contextBytes), task/list, approval/list, task/get, task/integrate, context/compact; non-UUID agent id and out-of-range contextBytes rejected; unknown approval/task ids and stale compaction revisions fail closed, empty summary rejected",
+    "core_e2e_rerun": false
+  },
+  "format_check": "passed",
+  "clippy_warnings_as_errors": "passed",
+  "pty_demo_smoke": "passed: four panes, paste/send, stop, confirmed quit, terminal restoration, non-TTY rejection",
+  "pty_live_smoke": "passed: seeded real session+agent via line protocol; Ctrl+A prefilled the seeded coordinator (edit path); Tabbed to a worker pane and added a second agent through the form (client-generated UUID, host-validated endpoint) and the pane rendered the new model and budget; coding toggle, review/compaction/create routing; masked credential form; confirmed quit and terminal restoration",
+  "pane_status_row": "now shows `<baseUrl> / <protocol> · <contextBytes> 字节预算`",
+  "real_api_tested": false,
+  "log": "evidence/stage-5-tests.log"
+}

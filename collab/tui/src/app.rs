@@ -58,6 +58,8 @@ pub struct Pane {
     pub api: String,
     pub protocol: String,
     pub status: String,
+    /// Configured UTF-8 request byte budget (`contextBytes`), when the pane has an agent.
+    pub context_bytes: Option<usize>,
     pub history: Vec<Line<'static>>,
     pub input: String,
     pub scroll: usize,
@@ -75,6 +77,7 @@ impl Pane {
             api: "—".into(),
             protocol: "—".into(),
             status: "未配置".into(),
+            context_bytes: None,
             history: Vec::new(),
             input: String::new(),
             scroll: 0,
@@ -155,6 +158,18 @@ pub enum Action {
         validation: Vec<Vec<String>>,
         requirement: String,
     },
+    OpenAgent {
+        pane: usize,
+    },
+    ConfigureAgent {
+        pane: usize,
+        id: String,
+        role: &'static str,
+        model: String,
+        base_url: String,
+        protocol: String,
+        context_bytes: usize,
+    },
 }
 
 /// Context compaction form: a summary plus the exact session revision it is based on.
@@ -172,6 +187,71 @@ pub struct CreateForm {
     /// Focused field: 0 repository, 1 validation, 2 requirement.
     pub field: usize,
     pub note: String,
+}
+
+/// Agent configuration form (`agent/configure`): identity, endpoint and budget for one pane.
+///
+/// The role follows the pane position (pane 0 is the coordinator) and the id is either the
+/// existing agent or a client-generated UUID, so neither is typed by the user.
+pub struct AgentForm {
+    pub pane: usize,
+    pub id: String,
+    pub role: &'static str,
+    pub model: String,
+    pub base_url: String,
+    /// Provider wire protocol: `responses` or `chat_completions`.
+    pub protocol: String,
+    pub context_bytes: String,
+    /// Focused field: 0 model, 1 baseUrl, 2 protocol, 3 contextBytes.
+    pub field: usize,
+    pub note: String,
+}
+
+/// The text field currently focused in the agent configuration form.
+fn agent_field_mut(form: &mut AgentForm) -> &mut String {
+    match form.field {
+        0 => &mut form.model,
+        1 => &mut form.base_url,
+        2 => &mut form.protocol,
+        _ => &mut form.context_bytes,
+    }
+}
+
+/// Friendly pre-check of the host's URL rule: HTTPS, or HTTP on loopback, no credentials.
+fn check_base_url(url: &str) -> Result<(), &'static str> {
+    if url.is_empty() {
+        return Err("需要填写 Base URL。");
+    }
+    let (scheme, rest) = url
+        .strip_prefix("https://")
+        .map(|rest| ("https", rest))
+        .or_else(|| url.strip_prefix("http://").map(|rest| ("http", rest)))
+        .ok_or("Base URL 需以 https:// 开头（本机可用 http://）。")?;
+    if rest.is_empty() {
+        return Err("Base URL 缺少主机名。");
+    }
+    if url.contains('?') {
+        return Err("Base URL 不能包含查询串。");
+    }
+    if url.contains('#') {
+        return Err("Base URL 不能包含片段。");
+    }
+    let authority = rest.split('/').next().unwrap_or("");
+    if authority.contains('@') {
+        return Err("Base URL 不能包含账号或密码。");
+    }
+    let host = if let Some(end) = authority.find(']') {
+        &authority[..=end]
+    } else {
+        authority.split(':').next().unwrap_or("")
+    };
+    if host.is_empty() {
+        return Err("Base URL 缺少主机名。");
+    }
+    if scheme == "http" && !matches!(host, "localhost" | "127.0.0.1" | "[::1]") {
+        return Err("http 只允许 localhost、127.0.0.1 或 [::1]。");
+    }
+    Ok(())
 }
 
 pub struct App {
@@ -193,6 +273,7 @@ pub struct App {
     pub review: Option<ReviewForm>,
     pub compact: Option<CompactForm>,
     pub create: Option<CreateForm>,
+    pub agent: Option<AgentForm>,
     pub coding: bool,
 }
 
@@ -225,6 +306,7 @@ impl App {
             review: None,
             compact: None,
             create: None,
+            agent: None,
             coding: false,
         }
     }
@@ -301,6 +383,7 @@ impl App {
             api: api.into(),
             protocol: protocol.into(),
             status: status.into(),
+            context_bytes: None,
             history: lines
                 .into_iter()
                 .map(|(color, text)| line(text, color))
@@ -339,6 +422,7 @@ impl App {
             review: None,
             compact: None,
             create: None,
+            agent: None,
             coding: false,
         }
     }
@@ -374,6 +458,10 @@ impl App {
             self.confirm_quit = true;
             return false;
         }
+        if self.agent.is_some() {
+            self.agent_key(key);
+            return false;
+        }
         if self.create.is_some() {
             self.create_key(key);
             return false;
@@ -401,6 +489,7 @@ impl App {
                     self.feedback = "已请求刷新会话、任务与共享记录。".into();
                 }
                 KeyCode::Char('k') if self.mode == Mode::Live => self.open_credential(),
+                KeyCode::Char('a') if self.mode == Mode::Live => self.open_agent(),
                 KeyCode::Char('e') if self.mode == Mode::Live => {
                     self.coding = !self.coding;
                     self.feedback = if self.coding {
@@ -585,6 +674,113 @@ impl App {
         }
     }
 
+    /// Ask the client to prepare the Agent configuration form for the focused pane.
+    fn open_agent(&mut self) {
+        self.outbox.push(Action::OpenAgent { pane: self.focused });
+        self.feedback = "正在准备 Agent 配置表单…".into();
+    }
+
+    /// Keys while the Agent form is open. Tab cycles fields; the protocol is toggled, not typed.
+    fn agent_key(&mut self, key: KeyEvent) {
+        if self.agent.is_none() {
+            return;
+        }
+        match key.code {
+            KeyCode::Enter => self.submit_agent(),
+            KeyCode::Esc => {
+                self.agent = None;
+                self.feedback = "已取消 Agent 配置。".into();
+            }
+            KeyCode::Tab | KeyCode::Down => {
+                if let Some(form) = self.agent.as_mut() {
+                    form.field = (form.field + 1) % 4;
+                }
+            }
+            KeyCode::BackTab | KeyCode::Up => {
+                if let Some(form) = self.agent.as_mut() {
+                    form.field = (form.field + 3) % 4;
+                }
+            }
+            KeyCode::Left | KeyCode::Right | KeyCode::Char(' ') => {
+                if let Some(form) = self.agent.as_mut()
+                    && form.field == 2
+                {
+                    form.protocol = if form.protocol == "responses" {
+                        "chat_completions".into()
+                    } else {
+                        "responses".into()
+                    };
+                }
+            }
+            KeyCode::Backspace => {
+                if let Some(form) = self.agent.as_mut()
+                    && form.field != 2
+                {
+                    agent_field_mut(form).pop();
+                }
+            }
+            KeyCode::Char(c) if !c.is_control() => {
+                if let Some(form) = self.agent.as_mut() {
+                    if form.field == 2 {
+                        // The protocol field is a toggle; letters are ignored.
+                    } else if form.field == 3 && !c.is_ascii_digit() {
+                        form.note = "contextBytes 只能是数字。".into();
+                    } else {
+                        let limit = if form.field == 3 { 7 } else { 4096 };
+                        let target = agent_field_mut(form);
+                        if target.len() + c.len_utf8() <= limit {
+                            target.push(c);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Point the form at one field and explain what is missing.
+    fn agent_note(&mut self, field: usize, note: &str) {
+        if let Some(form) = self.agent.as_mut() {
+            form.field = field;
+            form.note = note.into();
+        }
+    }
+
+    /// Validate the Agent form locally, then queue `agent/configure` for the host.
+    fn submit_agent(&mut self) {
+        let Some(form) = self.agent.as_ref() else {
+            return;
+        };
+        let model = form.model.trim().to_owned();
+        if model.is_empty() || model.len() > 200 {
+            self.agent_note(0, "模型名需为 1..200 字节。");
+            return;
+        }
+        let base_url = form.base_url.trim().to_owned();
+        if let Err(note) = check_base_url(&base_url) {
+            self.agent_note(1, note);
+            return;
+        }
+        let context_bytes = match form.context_bytes.trim().parse::<usize>() {
+            Ok(bytes) if (4096..=1_000_000).contains(&bytes) => bytes,
+            _ => {
+                self.agent_note(3, "contextBytes 需为 4096..1000000 的整数。");
+                return;
+            }
+        };
+        let form = self.agent.take().expect("form is open");
+        self.outbox.push(Action::ConfigureAgent {
+            pane: form.pane,
+            id: form.id,
+            role: form.role,
+            model,
+            base_url,
+            protocol: form.protocol,
+            context_bytes,
+        });
+        self.feedback = "正在配置 Agent，等待后台确认…".into();
+    }
+
     /// Open the review-and-integrate form for the focused pane's latest task (live mode).
     fn open_review(&mut self) {
         if self.panes[self.focused].agent_id.is_none() {
@@ -735,6 +931,34 @@ impl App {
     }
 
     pub fn paste(&mut self, text: &str) {
+        if let Some(form) = self.agent.as_mut() {
+            if form.field == 2 {
+                return;
+            }
+            let digits_only = form.field == 3;
+            let limit = if digits_only { 7 } else { 4096 };
+            let mut full = false;
+            for c in text.chars() {
+                let c = if matches!(c, '\n' | '\r' | '\t') {
+                    ' '
+                } else {
+                    c
+                };
+                if c.is_control() || (digits_only && !c.is_ascii_digit()) {
+                    continue;
+                }
+                let target = agent_field_mut(form);
+                if target.len() + c.len_utf8() > limit {
+                    full = true;
+                    break;
+                }
+                target.push(c);
+            }
+            if full {
+                self.feedback = "输入上限已满，请分段填写。".into();
+            }
+            return;
+        }
         if let Some(form) = self.create.as_mut() {
             let allow_newline = form.field != 0;
             let mut full = false;
@@ -1090,6 +1314,118 @@ mod tests {
         assert_eq!(form.field, 1, "validation is required next");
         assert!(form.note.contains("验证命令"));
         assert!(app.outbox.is_empty(), "nothing must be sent while invalid");
+    }
+    fn agent(id: &str) -> AgentForm {
+        AgentForm {
+            pane: 0,
+            id: id.into(),
+            role: "coordinator",
+            model: "planner".into(),
+            base_url: "https://example.invalid/v1".into(),
+            protocol: "responses".into(),
+            context_bytes: "65536".into(),
+            field: 0,
+            note: String::new(),
+        }
+    }
+    #[test]
+    fn agent_form_requires_a_valid_endpoint_and_submits() {
+        let mut app = App::live();
+        app.agent = Some(agent("11111111-2222-4333-8444-555555555555"));
+        app.key(press(KeyCode::Enter));
+        match app.outbox.last() {
+            Some(Action::ConfigureAgent {
+                pane,
+                id,
+                role,
+                model,
+                base_url,
+                protocol,
+                context_bytes,
+            }) => {
+                assert_eq!(*pane, 0);
+                assert_eq!(id, "11111111-2222-4333-8444-555555555555");
+                assert_eq!(*role, "coordinator");
+                assert_eq!(model, "planner");
+                assert_eq!(base_url, "https://example.invalid/v1");
+                assert_eq!(protocol, "responses");
+                assert_eq!(*context_bytes, 65536);
+            }
+            other => panic!("unexpected action: {other:?}"),
+        }
+        assert!(app.agent.is_none(), "a valid form is consumed");
+    }
+    #[test]
+    fn agent_form_rejects_empty_model_bad_url_and_budget() {
+        let mut app = App::live();
+        app.agent = Some(agent("id"));
+        app.agent.as_mut().unwrap().model = "  ".into();
+        app.key(press(KeyCode::Enter));
+        assert!(app.agent.is_some(), "empty model must not submit");
+        assert_eq!(app.agent.as_ref().unwrap().field, 0);
+        assert!(app.outbox.is_empty());
+
+        app.agent.as_mut().unwrap().model = "planner".into();
+        app.agent.as_mut().unwrap().base_url = "http://example.com/v1".into();
+        app.key(press(KeyCode::Enter));
+        assert_eq!(app.agent.as_ref().unwrap().field, 1);
+        assert!(app.agent.as_ref().unwrap().note.contains("http"));
+        assert!(app.outbox.is_empty());
+
+        app.agent.as_mut().unwrap().base_url = "https://example.invalid/v1".into();
+        app.agent.as_mut().unwrap().context_bytes = "1024".into();
+        app.key(press(KeyCode::Enter));
+        assert_eq!(app.agent.as_ref().unwrap().field, 3);
+        assert!(app.agent.as_ref().unwrap().note.contains("4096"));
+        assert!(app.outbox.is_empty());
+    }
+    #[test]
+    fn agent_form_toggles_protocol_cycles_fields_and_cancels() {
+        let mut app = App::live();
+        app.agent = Some(agent("id"));
+        app.key(press(KeyCode::Tab));
+        app.key(press(KeyCode::Tab));
+        assert_eq!(app.agent.as_ref().unwrap().field, 2);
+        app.key(press(KeyCode::Char(' ')));
+        assert_eq!(app.agent.as_ref().unwrap().protocol, "chat_completions");
+        app.key(press(KeyCode::Right));
+        assert_eq!(app.agent.as_ref().unwrap().protocol, "responses");
+        app.key(press(KeyCode::Backspace));
+        assert_eq!(
+            app.agent.as_ref().unwrap().protocol,
+            "responses",
+            "the protocol field is not text-editable"
+        );
+        app.key(press(KeyCode::Esc));
+        assert!(app.agent.is_none());
+        assert!(app.outbox.is_empty());
+    }
+    #[test]
+    fn agent_form_paste_is_sanitized_per_field() {
+        let mut app = App::live();
+        app.agent = Some(agent("id"));
+        app.agent.as_mut().unwrap().field = 1;
+        app.agent.as_mut().unwrap().base_url.clear();
+        app.paste("https://a\nb\t/c");
+        assert_eq!(app.agent.as_ref().unwrap().base_url, "https://a b /c");
+        app.agent.as_mut().unwrap().field = 3;
+        app.agent.as_mut().unwrap().context_bytes.clear();
+        app.paste("12a34\n56789000");
+        assert_eq!(app.agent.as_ref().unwrap().context_bytes, "1234567");
+    }
+    #[test]
+    fn base_url_check_mirrors_the_host_rule() {
+        assert!(check_base_url("https://api.example.com/v1").is_ok());
+        assert!(check_base_url("http://localhost:8080/v1").is_ok());
+        assert!(check_base_url("http://127.0.0.1/v1").is_ok());
+        assert!(check_base_url("http://[::1]:9/v1").is_ok());
+        assert!(check_base_url("").is_err());
+        assert!(check_base_url("ftp://example.com").is_err());
+        assert!(check_base_url("https://").is_err());
+        assert!(check_base_url("http://example.com").is_err());
+        assert!(check_base_url("https://user:pw@example.com").is_err());
+        assert!(check_base_url("https://example.com/v1?x=1").is_err());
+        assert!(check_base_url("https://example.com/v1#f").is_err());
     }
     #[test]
     fn live_cancel_and_refresh_use_the_outbox() {

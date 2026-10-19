@@ -3,7 +3,8 @@
 //! The client owns the host process, tracks in-flight requests by id, and applies responses and
 //! `collab/update` notifications to the [`App`]. It never reads the database or model adapters.
 use crate::app::{
-    ACCENT, Action, App, ApprovalItem, CompactForm, CreateForm, MUTED, Pane, ReviewForm, WARN, line,
+    ACCENT, Action, AgentForm, App, ApprovalItem, CompactForm, CreateForm, MUTED, Pane, ReviewForm,
+    WARN, line,
 };
 use crate::host::{Host, HostEvent};
 use ratatui::style::Color;
@@ -33,6 +34,7 @@ enum Pending {
     Decided,
     CredentialSaved,
     CredentialDeleted,
+    AgentConfigured,
     Review { pane: usize, task_id: String },
     Integrated,
     Revision { pages: u32 },
@@ -195,6 +197,10 @@ impl Client {
             }
             Pending::CredentialDeleted => {
                 app.feedback = "密钥删除请求已受理。".into();
+            }
+            Pending::AgentConfigured => {
+                app.feedback = "已配置 Agent，正在刷新窗格…".into();
+                self.load_agents(app);
             }
             Pending::Review { pane, task_id } => {
                 self.open_review(app, pane, task_id, &value);
@@ -536,6 +542,38 @@ impl Client {
                 };
                 open_create_form(app, &self.options, note);
             }
+            Action::OpenAgent { pane } => {
+                app.agent = Some(build_agent_form(app, pane));
+            }
+            Action::ConfigureAgent {
+                pane,
+                id,
+                role,
+                model,
+                base_url,
+                protocol,
+                context_bytes,
+            } => {
+                let Some(session) = self.session.clone() else {
+                    app.feedback = "尚未连接会话，无法配置 Agent。".into();
+                    return;
+                };
+                app.feedback = format!("正在配置窗格 {} 的 Agent…", pane + 1);
+                self.request(
+                    app,
+                    "agent/configure",
+                    json!({
+                        "id": id,
+                        "sessionId": session,
+                        "role": role,
+                        "model": model,
+                        "baseUrl": base_url,
+                        "protocol": protocol,
+                        "contextBytes": context_bytes,
+                    }),
+                    Pending::AgentConfigured,
+                );
+            }
             Action::CreateSession {
                 repository,
                 validation,
@@ -617,6 +655,57 @@ fn open_create_form(app: &mut App, options: &Options, note: String) {
 /// The host reports a revision clash this way; treat it as a soft retry.
 fn is_revision_conflict(message: &str) -> bool {
     message.contains("refresh before compacting")
+}
+
+/// Build the Agent form for a pane: editing an existing agent reuses its id and role, while an
+/// empty pane gets a client-generated UUID whose role follows the pane position.
+fn build_agent_form(app: &App, pane: usize) -> AgentForm {
+    let p = &app.panes[pane];
+    let (id, model, base_url, protocol, context_bytes) = match p.agent_id.clone() {
+        Some(id) => (
+            id,
+            p.model.clone(),
+            if p.api == "—" {
+                String::new()
+            } else {
+                p.api.clone()
+            },
+            protocol_value(&p.protocol).to_owned(),
+            p.context_bytes
+                .map(|bytes| bytes.to_string())
+                .unwrap_or_default(),
+        ),
+        None => (
+            uuid::Uuid::new_v4().to_string(),
+            String::new(),
+            String::new(),
+            "responses".to_owned(),
+            "65536".to_owned(),
+        ),
+    };
+    AgentForm {
+        pane,
+        id,
+        role: if pane == 0 { "coordinator" } else { "worker" },
+        model,
+        base_url,
+        protocol,
+        context_bytes,
+        field: 0,
+        note: if p.agent_id.is_some() {
+            "修改当前 Agent；运行中的任务需先停止。".into()
+        } else {
+            format!("为窗格 {} 新增 Agent（角色由位置决定）。", pane + 1)
+        },
+    }
+}
+
+/// Map a display label back to the wire protocol value.
+fn protocol_value(label: &str) -> &'static str {
+    match label {
+        "Chat Completions" => "chat_completions",
+        _ => "responses",
+    }
 }
 
 /// Validate a task snapshot for integration and build its review form.
@@ -749,6 +838,7 @@ fn apply_agents(app: &mut App, agents: &[Value]) {
         pane.model = agent["model"].as_str().unwrap_or("—").into();
         pane.api = agent["baseUrl"].as_str().unwrap_or("—").into();
         pane.protocol = protocol_label(agent["protocol"].as_str().unwrap_or("")).into();
+        pane.context_bytes = agent["contextBytes"].as_u64().map(|bytes| bytes as usize);
         pane.status = "空闲".into();
         pane.history
             .push(line(format!("$ codex --model {}", pane.model), MUTED));
@@ -919,6 +1009,41 @@ mod tests {
         assert_eq!(form.repository, "/tmp/repo");
         assert_eq!(form.validation, "cargo test\ncargo clippy");
         assert_eq!(form.field, 0);
+    }
+
+    #[test]
+    fn agent_form_generates_a_uuid_for_an_empty_pane() {
+        let mut app = App::live();
+        app.panes[1].model = "worker-model".into();
+        let form = build_agent_form(&app, 1);
+        assert_eq!(form.role, "worker");
+        assert_eq!(form.pane, 1);
+        assert!(
+            uuid::Uuid::parse_str(&form.id).is_ok(),
+            "a new agent needs a UUID the host accepts"
+        );
+        assert_eq!(form.model, "");
+        assert_eq!(form.protocol, "responses");
+        assert_eq!(form.context_bytes, "65536");
+    }
+
+    #[test]
+    fn agent_form_prefills_an_existing_agent_and_pane_zero_is_the_coordinator() {
+        let mut app = App::live();
+        let agents = vec![json!({
+            "id":"22222222-2222-4222-8222-222222222222","role":"worker","model":"code",
+            "baseUrl":"https://b","protocol":"chat_completions","contextBytes":32768
+        })];
+        apply_agents(&mut app, &agents);
+        let form = build_agent_form(&app, 1);
+        assert_eq!(form.id, "22222222-2222-4222-8222-222222222222");
+        assert_eq!(form.role, "worker");
+        assert_eq!(form.model, "code");
+        assert_eq!(form.base_url, "https://b");
+        assert_eq!(form.protocol, "chat_completions");
+        assert_eq!(form.context_bytes, "32768");
+        assert_eq!(app.panes[1].context_bytes, Some(32768));
+        assert_eq!(build_agent_form(&app, 0).role, "coordinator");
     }
 
     #[test]

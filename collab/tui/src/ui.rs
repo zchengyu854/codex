@@ -87,7 +87,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         Paragraph::new(vec![
             Line::styled(
                 format!(
-                    "[{} {}] 编码:{}  Tab 焦点  F2 放大  F3 共享  Ctrl+E 编码  Ctrl+G 审查集成  Ctrl+P 压缩  Ctrl+N 新建  Ctrl+K 密钥  Ctrl+R 刷新  Ctrl+C 停止  Ctrl+Q 退出",
+                    "[{} {}] 编码:{} Tab 焦点 F2 放大 F3 共享 Ctrl+A 配置 Ctrl+E 编码 Ctrl+G 审查集成 Ctrl+P 压缩 Ctrl+N 新建 Ctrl+K 密钥 Ctrl+R 刷新 Ctrl+C 停止 Ctrl+Q 退出",
                     app.focused + 1,
                     focused.role,
                     if app.coding { "开" } else { "关" }
@@ -185,6 +185,61 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
                 .block(
                     Block::bordered()
                         .title(" 新建协作会话 · 从 HEAD 创建协作分支与集成工作区 ")
+                        .border_style(Style::default().fg(ACCENT)),
+                ),
+            popup,
+        );
+    }
+    if let Some(form) = &app.agent {
+        let protocol = match form.protocol.as_str() {
+            "chat_completions" => "Chat Completions",
+            _ => "Responses",
+        };
+        let role = if form.role == "coordinator" {
+            "主控（coordinator）"
+        } else {
+            "工作（worker）"
+        };
+        let mut lines = vec![
+            line(format!("Agent {} · 角色 {role}", form.id), MUTED),
+            line(String::new(), FOREGROUND),
+        ];
+        push_field(&mut lines, "模型", &form.model, form.field == 0);
+        push_field(
+            &mut lines,
+            "Base URL（https，或本机 http）",
+            &form.base_url,
+            form.field == 1,
+        );
+        push_field(
+            &mut lines,
+            "协议（←/→/空格 切换）",
+            protocol,
+            form.field == 2,
+        );
+        push_field(
+            &mut lines,
+            "contextBytes（4096..1000000）",
+            &form.context_bytes,
+            form.field == 3,
+        );
+        lines.push(line(String::new(), FOREGROUND));
+        if !form.note.is_empty() {
+            lines.push(line(form.note.clone(), WARN));
+        }
+        lines.push(line(
+            "Tab/↑↓ 切换字段 · Enter 配置 · Esc 取消（运行中的任务需先停止）",
+            GREEN,
+        ));
+        let popup = centered(full, full.width.min(110), full.height.min(26));
+        frame.render_widget(Clear, popup);
+        frame.render_widget(
+            Paragraph::new(lines)
+                .style(Style::default().bg(BACKGROUND).fg(FOREGROUND))
+                .wrap(Wrap { trim: false })
+                .block(
+                    Block::bordered()
+                        .title(" 配置 Agent · 端点、协议与上下文预算 ")
                         .border_style(Style::default().fg(ACCENT)),
                 ),
             popup,
@@ -338,8 +393,13 @@ fn draw_pane(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
         Constraint::Length(1),
     ])
     .split(inner);
+    let budget = p
+        .context_bytes
+        .map(|bytes| format!(" · {bytes} 字节预算"))
+        .unwrap_or_default();
     frame.render_widget(
-        Paragraph::new(format!("{} / {}", p.api, p.protocol)).style(Style::default().fg(MUTED)),
+        Paragraph::new(format!("{} / {}{budget}", p.api, p.protocol))
+            .style(Style::default().fg(MUTED)),
         rows[0],
     );
     let mut lines = p.history.clone();
@@ -535,6 +595,29 @@ mod tests {
         assert!(text.contains("设置 API Key"));
         assert!(text.contains('•'));
         assert!(!text.contains("sk-secret"));
+    }
+    #[test]
+    fn agent_modal_renders_identity_endpoint_and_budget() {
+        use crate::app::AgentForm;
+        let mut app = App::live();
+        app.agent = Some(AgentForm {
+            pane: 1,
+            id: "11111111-2222-4333-8444-555555555555".into(),
+            role: "worker",
+            model: "worker-model".into(),
+            base_url: "https://example.invalid/v1".into(),
+            protocol: "chat_completions".into(),
+            context_bytes: "65536".into(),
+            field: 1,
+            note: "为窗格 2 新增 Agent（角色由位置决定）。".into(),
+        });
+        let text = screen(&mut app, 140, 42);
+        assert!(text.contains("配置 Agent"));
+        assert!(text.contains("worker-model"));
+        assert!(text.contains("https://example.invalid/v1"));
+        assert!(text.contains("Chat Completions"));
+        assert!(text.contains("65536"));
+        assert!(text.contains("工作（worker）"));
     }
     #[test]
     fn tiny_sizes_and_quit_popup_do_not_panic() {

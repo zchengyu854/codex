@@ -143,6 +143,38 @@ try:
     os.write(master, b"\x1b")  # Esc cancels
     drain(0.3)
 
+    # Ctrl+A on the seeded coordinator prefills the existing agent (edit path).
+    output.clear()
+    os.write(master, b"\x01")  # Ctrl+A
+    drain(0.5)
+    text = re.sub(rb"\x1b\[[0-9;?]*[A-Za-z]", b"", bytes(output)).decode("utf-8", "replace")
+    assert "配置 Agent" in text, f"agent form missing:\n{text[-2000:]!r}"
+    assert MODEL in text, f"existing model was not prefilled:\n{text[-2000:]!r}"
+    assert "主控（coordinator）" in text, "coordinator role missing from the agent form"
+    os.write(master, b"\x1b")  # Esc cancels
+    drain(0.3)
+
+    # Tab to a worker pane and add a second agent through the form: the client generates the
+    # UUID, the host validates the endpoint and the pane refreshes with the new model.
+    output.clear()
+    os.write(master, b"\t")  # Tab focuses worker pane 2
+    drain(0.2)
+    os.write(master, b"\x01")  # Ctrl+A
+    drain(0.5)
+    text = re.sub(rb"\x1b\[[0-9;?]*[A-Za-z]", b"", bytes(output)).decode("utf-8", "replace")
+    assert "配置 Agent" in text, f"worker agent form missing:\n{text[-2000:]!r}"
+    assert "工作（worker）" in text, "worker role missing from the agent form"
+    os.write(master, b"worker-model")
+    os.write(master, b"\t")  # model -> baseUrl
+    os.write(master, b"https://example.invalid/v1")
+    os.write(master, b"\t")  # baseUrl -> protocol
+    os.write(master, b"\t")  # protocol -> contextBytes (prefilled)
+    os.write(master, b"\r")  # submit agent/configure
+    drain(1.2)
+    text = re.sub(rb"\x1b\[[0-9;?]*[A-Za-z]", b"", bytes(output)).decode("utf-8", "replace")
+    assert "worker-model" in text, f"configured worker model not rendered:\n{text[-2000:]!r}"
+    assert "65536" in text, f"context budget not rendered:\n{text[-2000:]!r}"
+
     os.write(master, b"\x11")  # Ctrl+Q
     drain(0.3)
     os.write(master, b"\r")  # Enter confirms quit
@@ -151,7 +183,7 @@ try:
     drain(0.3)
     assert termios.tcgetattr(slave) == before, "terminal input modes were not restored"
     assert b"\x1b[?1049l" in output, "alternate screen was not restored"
-    print("PASS: live session/agent rendering, coding toggle, review routing, compaction and create forms, masked credential form, confirmed quit, terminal restoration")
+    print("PASS: live session/agent rendering, coding toggle, review routing, compaction and create forms, agent configuration, masked credential form, confirmed quit, terminal restoration")
 finally:
     if process.poll() is None:
         process.kill()

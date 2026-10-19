@@ -32,7 +32,8 @@ const HELP: &str = "用法:
       没有任何会话且给出 --repository 时按其创建（需至少一条 --validation）。
 
 操作：Tab/Shift+Tab 焦点 · F2 放大 · F3 共享记录 · Ctrl+R 刷新
-      Ctrl+C 取消当前窗格任务 · Ctrl+Q 确认退出";
+      Ctrl+A 配置 Agent · Ctrl+K 密钥 · Ctrl+E 编码开关 · Ctrl+G 审查集成
+      Ctrl+P 压缩上下文 · Ctrl+N 新建会话 · Ctrl+C 取消当前窗格任务 · Ctrl+Q 退出";
 
 struct TerminalModes;
 impl Drop for TerminalModes {

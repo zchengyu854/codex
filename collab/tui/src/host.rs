@@ -334,6 +334,43 @@ mod tests {
         let agents = response(&host, "agent/list", json!({"sessionId": session_id})).unwrap();
         assert_eq!(agents.as_array().unwrap().len(), 1);
         assert_eq!(agents[0]["model"], "planner-model");
+        // agent/list carries the budget, which the configuration form prefills when editing.
+        assert_eq!(agents[0]["contextBytes"], 65536);
+        // The form relies on the host rejecting ids that are not UUIDs and out-of-range budgets.
+        assert!(
+            response(
+                &host,
+                "agent/configure",
+                json!({
+                    "id": "not-a-uuid",
+                    "sessionId": session_id,
+                    "role": "worker",
+                    "model": "m",
+                    "baseUrl": "https://example.invalid/v1",
+                    "protocol": "responses",
+                    "contextBytes": 65536
+                })
+            )
+            .is_err(),
+            "a non-UUID agent id must be rejected"
+        );
+        assert!(
+            response(
+                &host,
+                "agent/configure",
+                json!({
+                    "id": "33333333-3333-4333-8333-333333333333",
+                    "sessionId": session_id,
+                    "role": "worker",
+                    "model": "m",
+                    "baseUrl": "https://example.invalid/v1",
+                    "protocol": "responses",
+                    "contextBytes": 1024
+                })
+            )
+            .is_err(),
+            "an out-of-range contextBytes must be rejected"
+        );
         let tasks = response(&host, "task/list", json!({"sessionId": session_id})).unwrap();
         assert!(tasks.as_array().unwrap().is_empty());
         // The approval channel is reachable and fails closed for unknown ids.

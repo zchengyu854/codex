@@ -1,0 +1,182 @@
+# stage 5 agent configuration tests
+2026年10月19日 星期一 16时18分59秒 CST
+## workspace tests
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running unittests src/lib.rs (collab/target/debug/deps/codex_collab_core-5ceeb60cddd00170)
+running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running unittests src/main.rs (collab/target/debug/deps/codex_collab_core-27a8e5b9042847cc)
+running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/gateway.rs (collab/target/debug/deps/gateway-867af0caad5a28d7)
+running 4 tests
+test unsupported_chat_tool_fails_before_contacting_upstream ... ok
+test both_protocols_inject_current_records_every_model_request ... ok
+test cancellation_aborts_waiting_upstream_request ... ok
+test local_auth_rejects_cross_agent_access_and_bounded_retry ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.79s
+     Running tests/git.rs (collab/target/debug/deps/git-f6709c4135d5153b)
+running 5 tests
+test non_git_and_missing_validation_are_rejected ... ok
+test failed_validation_preserves_candidate_without_advancing_branch ... ok
+test validation_cannot_sneak_unreviewed_changes_into_commit ... ok
+test conflicting_change_pauses_without_advancing_branch ... ok
+test worktrees_exclude_dirty_original_and_revalidate_stale_results ... ok
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.83s
+     Running tests/protocol.rs (collab/target/debug/deps/protocol-950d8c3cd03c02ae)
+running 9 tests
+test secret_never_serializes_and_redaction_covers_repeats ... ok
+test sse_mixed_line_endings_keep_frame_order ... ok
+test sse_decoder_handles_fragmentation_crlf_and_utf8 ... ok
+test rejects_unsupported_capabilities ... ok
+test converts_roles_tools_and_full_tool_history ... ok
+test stream_redaction_handles_keys_split_at_every_boundary ... ok
+test rejects_incomplete_and_unknown_output ... ok
+test namespaced_custom_tool_roundtrip ... ok
+test assembles_fragmented_calls_text_and_usage ... ok
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/runtime.rs (collab/target/debug/deps/runtime-e541a1e8b97dbcdc)
+running 2 tests
+test cancel_while_awaiting_approval_cleans_up_and_rejects_late_choice ... ok
+test routes_approval_to_exact_agent_and_redacts_local_credentials ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.51s
+     Running tests/runtime_e2e.rs (collab/target/debug/deps/runtime_e2e-61912d4d3cdb6cd1)
+running 1 test
+test coordinator_delegates_three_workers_across_both_protocols_and_integrates ... ignored, requires installed Codex and local process execution; set CODEX_COLLAB_BIN to test a source-built executable
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/store.rs (collab/target/debug/deps/store-fd5e89ed4ded679d)
+running 12 tests
+test api_url_rejects_embedded_keys_and_remote_plaintext ... ok
+test cross_session_dependencies_rejected ... ok
+test enforces_roles_and_four_agents ... ok
+test approval_rejects_stale_user_choice_after_cancel ... ok
+test cannot_reconfigure_running_or_move_agent ... ok
+test budget_does_not_silently_drop_constraints ... ok
+test failed_dependencies_block_and_cancel_wins_over_late_completion ... ok
+test dependencies_require_coding_integration ... ok
+test prevents_two_hosts_recovering_same_state ... ok
+test versioned_context_retains_user_overrides_and_checkpoint_audit ... ok
+test recovery_does_not_replay_running_tasks ... ok
+test queue_limits_and_one_task_per_agent ... ok
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+     Running unittests src/main.rs (collab/target/debug/deps/codex_collab_tui-05268d5c50941c6f)
+running 50 tests
+test app::tests::base_url_check_mirrors_the_host_rule ... ok
+test app::tests::agent_form_requires_a_valid_endpoint_and_submits ... ok
+test app::tests::coding_toggle_is_carried_into_task_creation ... ok
+test app::tests::agent_form_toggles_protocol_cycles_fields_and_cancels ... ok
+test app::tests::compact_form_carries_the_probed_revision ... ok
+test app::tests::agent_form_paste_is_sanitized_per_field ... ok
+test app::tests::approval_modal_cycles_and_decides ... ok
+test app::tests::agent_form_rejects_empty_model_bad_url_and_budget ... ok
+test app::tests::credential_form_delete_and_cancel ... ok
+test app::tests::create_form_requires_repository_and_validation ... ok
+test app::tests::credential_form_needs_a_configured_agent ... ok
+test app::tests::create_form_parses_validation_and_submits ... ok
+test app::tests::credential_form_is_masked_and_submits ... ok
+test app::tests::live_send_queues_an_action_without_touching_history ... ok
+test app::tests::focus_cycles_and_keeps_each_input ... ok
+test app::tests::live_cancel_and_refresh_use_the_outbox ... ok
+test app::tests::quit_works_while_a_modal_is_open ... ok
+test app::tests::quit_requires_confirmation_and_escape_cancels ... ok
+test app::tests::review_cancel_returns_to_normal_input ... ok
+test app::tests::review_requires_a_conclusion_then_integrates ... ok
+test app::tests::paste_sanitizes_control_characters_and_preserves_unicode ... ok
+test app::tests::send_is_local_and_never_starts_a_model ... ok
+test app::tests::stop_does_not_affect_other_panes ... ok
+test app::tests::zoom_shared_and_scroll_are_independent ... ok
+test client::tests::agent_form_generates_a_uuid_for_an_empty_pane ... ok
+test client::tests::agent_form_prefills_an_existing_agent_and_pane_zero_is_the_coordinator ... ok
+test client::tests::agents_map_to_one_coordinator_and_three_workers ... ok
+test client::tests::approval_detail_handles_missing_and_long_values ... ok
+test client::tests::compact_form_reopens_with_summary_and_note ... ok
+test client::tests::build_review_requires_a_completed_coding_task ... ok
+test client::tests::create_form_prefills_from_options ... ok
+test client::tests::event_text_prefers_known_fields_and_falls_back_to_json ... ok
+test client::tests::approvals_apply_and_clamp_index ... ok
+test client::tests::revision_conflict_is_classified ... ok
+test client::tests::short_id_is_utf8_safe_for_ascii_uuids ... ok
+test client::tests::status_and_protocol_labels_are_bounded ... ok
+test host::tests::real_host_drives_session_and_agent_listing ... ignored, requires a built codex-collab-core binary
+test host::tests::classify_distinguishes_notifications_from_responses ... ok
+test app::tests::history_is_bounded_and_empty_input_does_not_send ... ok
+test ui::tests::layout_has_one_tall_coordinator_and_three_worker_panes ... ok
+test ui::tests::narrow_terminal_and_zoom_show_only_focused_model ... ok
+test ui::tests::agent_modal_renders_identity_endpoint_and_budget ... ok
+test ui::tests::review_modal_renders_diff_and_conclusion ... ok
+test ui::tests::full_layout_renders_all_models_and_demo_boundary ... ok
+test ui::tests::unicode_input_tail_fits_without_cutting_utf8 ... ok
+test ui::tests::compact_and_create_modals_render ... ok
+test ui::tests::resize_clamps_history_offset_and_shared_records_render ... ok
+test ui::tests::approval_and_credential_modals_render_masked ... ok
+test ui::tests::tiny_sizes_and_quit_popup_do_not_panic ... ok
+test host::tests::request_and_response_round_trip_through_a_subprocess ... ok
+test result: ok. 49 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.06s
+   Doc-tests codex_collab_core
+running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+## tui opt-in tests
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running unittests src/main.rs (collab/target/debug/deps/codex_collab_tui-aad1159fab20d91a)
+running 50 tests
+test app::tests::agent_form_paste_is_sanitized_per_field ... ok
+test app::tests::compact_form_carries_the_probed_revision ... ok
+test app::tests::base_url_check_mirrors_the_host_rule ... ok
+test app::tests::agent_form_toggles_protocol_cycles_fields_and_cancels ... ok
+test app::tests::agent_form_requires_a_valid_endpoint_and_submits ... ok
+test app::tests::agent_form_rejects_empty_model_bad_url_and_budget ... ok
+test app::tests::coding_toggle_is_carried_into_task_creation ... ok
+test app::tests::approval_modal_cycles_and_decides ... ok
+test app::tests::create_form_requires_repository_and_validation ... ok
+test app::tests::create_form_parses_validation_and_submits ... ok
+test app::tests::credential_form_delete_and_cancel ... ok
+test app::tests::credential_form_is_masked_and_submits ... ok
+test app::tests::credential_form_needs_a_configured_agent ... ok
+test app::tests::live_cancel_and_refresh_use_the_outbox ... ok
+test app::tests::live_send_queues_an_action_without_touching_history ... ok
+test app::tests::review_cancel_returns_to_normal_input ... ok
+test app::tests::quit_requires_confirmation_and_escape_cancels ... ok
+test app::tests::quit_works_while_a_modal_is_open ... ok
+test app::tests::focus_cycles_and_keeps_each_input ... ok
+test app::tests::review_requires_a_conclusion_then_integrates ... ok
+test app::tests::paste_sanitizes_control_characters_and_preserves_unicode ... ok
+test app::tests::send_is_local_and_never_starts_a_model ... ok
+test app::tests::stop_does_not_affect_other_panes ... ok
+test client::tests::agent_form_generates_a_uuid_for_an_empty_pane ... ok
+test app::tests::zoom_shared_and_scroll_are_independent ... ok
+test client::tests::approval_detail_handles_missing_and_long_values ... ok
+test client::tests::build_review_requires_a_completed_coding_task ... ok
+test client::tests::agent_form_prefills_an_existing_agent_and_pane_zero_is_the_coordinator ... ok
+test client::tests::compact_form_reopens_with_summary_and_note ... ok
+test client::tests::agents_map_to_one_coordinator_and_three_workers ... ok
+test client::tests::create_form_prefills_from_options ... ok
+test client::tests::approvals_apply_and_clamp_index ... ok
+test client::tests::event_text_prefers_known_fields_and_falls_back_to_json ... ok
+test client::tests::short_id_is_utf8_safe_for_ascii_uuids ... ok
+test client::tests::revision_conflict_is_classified ... ok
+test client::tests::status_and_protocol_labels_are_bounded ... ok
+test app::tests::history_is_bounded_and_empty_input_does_not_send ... ok
+test host::tests::classify_distinguishes_notifications_from_responses ... ok
+test ui::tests::layout_has_one_tall_coordinator_and_three_worker_panes ... ok
+test ui::tests::full_layout_renders_all_models_and_demo_boundary ... ok
+test ui::tests::agent_modal_renders_identity_endpoint_and_budget ... ok
+test ui::tests::narrow_terminal_and_zoom_show_only_focused_model ... ok
+test ui::tests::unicode_input_tail_fits_without_cutting_utf8 ... ok
+test ui::tests::approval_and_credential_modals_render_masked ... ok
+test ui::tests::compact_and_create_modals_render ... ok
+test ui::tests::review_modal_renders_diff_and_conclusion ... ok
+test ui::tests::resize_clamps_history_offset_and_shared_records_render ... ok
+test ui::tests::tiny_sizes_and_quit_popup_do_not_panic ... ok
+test host::tests::request_and_response_round_trip_through_a_subprocess ... ok
+test host::tests::real_host_drives_session_and_agent_listing ... ok
+test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.75s
+## clippy
+    Checking codex-collab-tui v0.1.0 (/Users/Apple/Documents/ZcyCode/codex-collab/collab/tui)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.80s
+## format
+format ok
+## pty demo probe
+PASS: four panes, paste/send, stop, confirmed quit, terminal restoration, non-TTY rejection
+## pty live probe
+seeded session 1ed01720 with agent model planner-model
+PASS: live session/agent rendering, coding toggle, review routing, compaction and create forms, agent configuration, masked credential form, confirmed quit, terminal restoration

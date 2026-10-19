@@ -7,6 +7,7 @@
 - [终端壳层：运行与操作](docs/stage-3-terminal.md)
 - [阶段 4：终端接入协作后台](docs/stage-4-host-client.md)
 - [阶段 5：补齐终端契约覆盖](docs/stage-5-coverage.md)
+- [阶段 6：参数可达与真实验证（设计待确认）](docs/stage-6-plan.md)
 - [后台接口与行为约定](docs/core-api.md)
 
 ## 当前能力

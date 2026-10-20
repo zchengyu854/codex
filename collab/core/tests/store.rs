@@ -41,6 +41,7 @@ fn req(s: &Session, a: &Agent, deps: Vec<String>, coding: bool) -> TaskRequest {
         acceptance: "check".into(),
         dependencies: deps,
         coding,
+        created_by: None,
     }
 }
 #[test]

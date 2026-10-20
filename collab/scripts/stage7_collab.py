@@ -28,27 +28,35 @@ AGENTS = (
     (WORKER_B, "worker"),
 )
 ACTIVE = ("queued", "running")
-GOAL = (
-    "Run this delegation in one turn, without stopping to ask the user. "
-    "Step 1: call collab_create_task for the first agent with role worker in the roster, with goal "
-    "'Create a.txt containing the single word alpha', acceptance 'a.txt contains exactly alpha', "
-    "coding true and no dependencies. "
-    "Step 2: immediately call collab_create_task again for the second worker, with goal 'Create "
-    "b.txt containing the single word beta', acceptance 'b.txt contains exactly beta', coding true, "
-    "and dependencies set to the task id returned by step 1. "
-    "Step 3: call collab_wait_task on the a.txt task until it is completed. "
-    "Step 4: call collab_review_diff for the a.txt task, then collab_integrate with that exact "
-    "commit once the diff only adds a.txt. "
-    "Step 5: call collab_wait_task on the b.txt task until it is completed, then collab_review_diff "
-    "and collab_integrate the same way. "
-    "Step 6: only after both integrations report integrated, answer with the two commit hashes. "
-    "Do not finish after creating the tasks, and do not skip the integrations: the job is the "
-    "reviewed and integrated result, not the delegation."
-)
-ACCEPTANCE = (
-    "Both worker tasks are completed and integrated into the collaboration branch, a.txt contains "
-    "alpha, b.txt contains beta, and the b.txt task only started after the a.txt task was integrated."
-)
+FILES = ("a.txt", "alpha", "b.txt", "beta")
+
+
+def goal(first, first_word, second, second_word):
+    return (
+        "Run this delegation in one turn, without stopping to ask the user. "
+        f"Step 1: call collab_create_task for the first agent with role worker in the roster, with goal "
+        f"'Create {first} containing the single word {first_word}', acceptance '{first} contains "
+        f"exactly {first_word}', coding true and no dependencies. "
+        f"Step 2: immediately call collab_create_task again for the second worker, with goal 'Create "
+        f"{second} containing the single word {second_word}', acceptance '{second} contains exactly "
+        f"{second_word}', coding true, and dependencies set to the task id returned by step 1. "
+        f"Step 3: call collab_wait_task on the {first} task until it is completed. "
+        f"Step 4: call collab_review_diff for the {first} task, then collab_integrate with that exact "
+        f"commit once the diff only adds {first}. "
+        f"Step 5: call collab_wait_task on the {second} task until it is completed, then "
+        f"collab_review_diff and collab_integrate the same way. "
+        "Step 6: only after both integrations report integrated, answer with the two commit hashes. "
+        "Do not finish after creating the tasks, and do not skip the integrations: the job is the "
+        "reviewed and integrated result, not the delegation."
+    )
+
+
+def acceptance(first, first_word, second, second_word):
+    return (
+        f"Both worker tasks are completed and integrated into the collaboration branch, {first} "
+        f"contains {first_word}, {second} contains {second_word}, and the {second} task only started "
+        f"after the {first} task was integrated."
+    )
 
 
 class HostError(Exception):
@@ -291,6 +299,13 @@ def verify(args):
         evidence["session"] = session
         print(f"会话 {session[:8]} · {len(roster)} 个 Agent")
 
+        first, first_word, second, second_word = (
+            args.first_file,
+            args.first_word,
+            args.second_file,
+            args.second_word,
+        )
+        pair = ((first, first_word), (second, second_word))
         existing = {t["id"] for t in host.call("task/list", {"sessionId": session})}
         evidence["priorTasks"] = len(existing)
         coordinator = host.call(
@@ -298,13 +313,17 @@ def verify(args):
             {
                 "sessionId": session,
                 "agentId": COORDINATOR,
-                "goal": GOAL,
-                "acceptance": ACCEPTANCE,
+                "goal": goal(first, first_word, second, second_word),
+                "acceptance": acceptance(first, first_word, second, second_word),
                 "dependencies": [],
                 "coding": False,
             },
         )
-        evidence["dispatch"] = {"taskId": coordinator["id"], "goal": GOAL, "acceptance": ACCEPTANCE}
+        evidence["dispatch"] = {
+            "taskId": coordinator["id"],
+            "goal": goal(first, first_word, second, second_word),
+            "acceptance": acceptance(first, first_word, second, second_word),
+        }
         print(f"派发 {coordinator['id'][:8]} 给主控")
 
         timeline, approvals = poll_run(host, session, args, evidence)
@@ -320,10 +339,11 @@ def verify(args):
         evidence["tasks"] = detail
 
         events = host.call("event/list", {"sessionId": session, "after": 0, "limit": 1000})
+        run_tasks = {t["id"] for t in tasks}
         evidence["integrations"] = [
             {"revision": e["revision"], "taskId": e.get("taskId"), "data": e["data"]}
             for e in events
-            if e["kind"] == "integration"
+            if e["kind"] == "integration" and e.get("taskId") in run_tasks
         ]
         evidence["messages"] = [
             {"revision": e["revision"], "agentId": e.get("agentId"), "text": e["data"].get("text")}
@@ -334,6 +354,14 @@ def verify(args):
             {"agentId": e.get("agentId"), "data": e["data"]}
             for e in events
             if e["kind"] == "usage"
+        ]
+        # The host nudges a coordinator that ended its turn with unfinished delegated work; both the
+        # nudges and the final flag are evidence, not noise.
+        evidence["continuations"] = [
+            {"revision": e["revision"], "taskId": e.get("taskId"), "kind": e["kind"], "data": e["data"]}
+            for e in events
+            if e["kind"] in ("task_continued", "task_incomplete")
+            and e.get("taskId") == coordinator["id"]
         ]
 
         workers = [t for t in detail.values() if t["agentId"] != COORDINATOR]
@@ -391,19 +419,13 @@ def verify(args):
         evidence["gate"] = gate
 
         # The collaboration branch, not the source repo, must carry both files.
-        integration_worktree = os.path.join(state, "worktrees", session, "integration")
-        files = {}
-        for name, expected in (("a.txt", "alpha"), ("b.txt", "beta")):
-            path = os.path.join(integration_worktree, name)
-            try:
-                with open(path, encoding="utf-8") as handler:
-                    body = handler.read().strip()
-                files[name] = {"text": body, "ok": body == expected}
-                if body != expected:
-                    note(f"{name} in the integration worktree is {body!r}, expected {expected!r}")
-            except OSError as error:
-                files[name] = {"error": str(error), "ok": False}
-                note(f"{name} missing from the integration worktree: {error}")
+        files, integration_worktree = integration_files(state, session, pair)
+        for name, item in files.items():
+            if not item["ok"]:
+                note(
+                    f"{name} in the integration worktree is "
+                    f"{item.get('text', item.get('error'))!r}"
+                )
         evidence["files"] = files
         evidence["integrationHead"] = git(integration_worktree, "rev-parse", "HEAD", check=False)
         evidence["sourceRepoClean"] = (
@@ -431,11 +453,11 @@ def verify(args):
     return 0
 
 
-def integration_files(state, session):
+def integration_files(state, session, pair):
     """Read the collaboration worktree, not the source repository."""
     root = os.path.join(state, "worktrees", session, "integration")
     files = {}
-    for name, expected in (("a.txt", "alpha"), ("b.txt", "beta")):
+    for name, expected in pair:
         path = os.path.join(root, name)
         try:
             with open(path, encoding="utf-8") as handler:
@@ -499,13 +521,17 @@ def followup(args):
             if e["kind"] == "integration" and e.get("taskId") == target["id"]
         ]
         evidence["integrations"] = integr
-        files, root = integration_files(state, session)
+        pair = (
+            (args.first_file, args.first_word),
+            (args.second_file, args.second_word),
+        )
+        files, root = integration_files(state, session, pair)
         evidence["files"] = files
         evidence["integrationHead"] = git(root, "rev-parse", "HEAD", check=False)
         if evidence["taskAfter"]["integrationStatus"] != "integrated":
             problems.append("the target task is still not integrated")
-        if not files["b.txt"]["ok"]:
-            problems.append("b.txt is not in the collaboration worktree")
+        if not files[args.second_file]["ok"]:
+            problems.append(f"{args.second_file} is not in the collaboration worktree")
     finally:
         host.close()
     evidence["verdict"] = {"ok": not problems, "problems": problems}
@@ -518,6 +544,14 @@ def followup(args):
         return 1
     print("PASS: the dependent task is integrated and both files are on the collaboration branch")
     return 0
+
+
+def add_pair_arguments(parser, default_files=FILES):
+    """Which two files a run must produce, so a later round can use fresh names."""
+    parser.add_argument("--first-file", default=default_files[0])
+    parser.add_argument("--first-word", default=default_files[1])
+    parser.add_argument("--second-file", default=default_files[2])
+    parser.add_argument("--second-word", default=default_files[3])
 
 
 def main():
@@ -542,6 +576,7 @@ def main():
     check.add_argument("--interval", type=float, default=1.5)
     check.add_argument("--approve", action="store_true")
     check.add_argument("--codex", default="codex")
+    add_pair_arguments(check)
     check.set_defaults(handler=verify)
 
     finish = sub.add_parser("followup", help="integrate one completed task the coordinator left behind")
@@ -553,6 +588,7 @@ def main():
     finish.add_argument("--interval", type=float, default=1.5)
     finish.add_argument("--approve", action="store_true")
     finish.add_argument("--codex", default="codex")
+    add_pair_arguments(finish)
     finish.set_defaults(handler=followup)
     args = parser.parse_args()
     sys.exit(args.handler(args))

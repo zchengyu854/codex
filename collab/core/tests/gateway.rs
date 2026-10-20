@@ -96,6 +96,7 @@ fn state(tmp: &TempDir, url: String, protocol: Protocol) -> (Arc<Store>, Agent, 
             acceptance: "check".into(),
             dependencies: vec![],
             coding: false,
+            created_by: None,
         })
         .unwrap();
     let t = store.claim().unwrap().unwrap();

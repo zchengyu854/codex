@@ -489,6 +489,8 @@ pub struct DetailForm {
     pub dependencies: Vec<(String, String)>,
     /// Reason from the `task_blocked` event, when this client has seen one.
     pub blocked: String,
+    /// What the host did about a coordinator that stopped early (continuations, unfinished work).
+    pub delegation: String,
     pub result: String,
     /// Attachment inventory line (label, size, path).
     pub artifacts: String,
@@ -2883,6 +2885,7 @@ mod tests {
             integration: "未集成".into(),
             dependencies: vec![("bbbbbbbb…".into(), "已完成".into())],
             blocked: "dependency did not complete".into(),
+            delegation: "已由宿主续跑 2 次".into(),
             result: String::new(),
             artifacts: String::new(),
             body: String::new(),

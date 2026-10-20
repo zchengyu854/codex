@@ -72,6 +72,9 @@ pub struct TaskRequest {
     pub dependencies: Vec<String>,
     #[serde(default)]
     pub coding: bool,
+    /// The task that created this one through `collab_create_task`; host-written, never client input.
+    #[serde(default)]
+    pub created_by: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

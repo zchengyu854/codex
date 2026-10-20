@@ -126,6 +126,8 @@ pub struct Client {
     requirements: HashMap<String, Vec<String>>,
     /// Last `task_blocked` reason per task, so the detail view can explain a blocked task.
     blocked_reason: HashMap<String, String>,
+    /// What the host did about a coordinator that stopped early, per task id.
+    delegation: HashMap<String, String>,
     /// Incremented per picker open; a scan answer from an older list is ignored.
     scan_generation: u64,
 }
@@ -146,6 +148,7 @@ impl Client {
             output_poll: None,
             requirements: HashMap::new(),
             blocked_reason: HashMap::new(),
+            delegation: HashMap::new(),
             scan_generation: 0,
         }
     }
@@ -173,6 +176,7 @@ impl Client {
         self.task_status.clear();
         self.artifacts.clear();
         self.blocked_reason.clear();
+        self.delegation.clear();
         self.compact_retry = None;
         self.probe = None;
         self.output_poll = None;
@@ -485,8 +489,15 @@ impl Client {
                     .get(&task_id)
                     .cloned()
                     .unwrap_or_default();
-                let mut form =
-                    build_detail(pane, task_id.clone(), &value, &blocked, &self.task_status);
+                let delegation = self.delegation.get(&task_id).cloned().unwrap_or_default();
+                let mut form = build_detail(
+                    pane,
+                    task_id.clone(),
+                    &value,
+                    &blocked,
+                    &delegation,
+                    &self.task_status,
+                );
                 form.artifacts = self.artifact_inventory(&task_id);
                 form.body = self.read_attachment(&task_id, "full result");
                 app.detail = Some(form);
@@ -651,6 +662,17 @@ impl Client {
                     let status = data["status"].as_str().unwrap_or("?");
                     app.push_line(index, format!("[集成] {status}"), WARN);
                 }
+            }
+            "task_continued" | "task_incomplete" => {
+                if let Some(task_id) = event["taskId"].as_str() {
+                    let text = if kind == "task_incomplete" {
+                        format!("收尾时仍有子任务未完成：{}", task_ids(data))
+                    } else {
+                        format!("已由宿主续跑 {} 次", data["attempt"].as_u64().unwrap_or(1))
+                    };
+                    self.delegation.insert(task_id.to_owned(), text);
+                }
+                apply_delegation_note(app, agent, kind, data);
             }
             "artifact" => {
                 if let (Some(index), Some(task_id)) =
@@ -1341,6 +1363,7 @@ fn build_detail(
     task_id: String,
     task: &Value,
     blocked: &str,
+    delegation: &str,
     statuses: &HashMap<String, String>,
 ) -> DetailForm {
     let dependencies = task["dependencies"]
@@ -1370,6 +1393,7 @@ fn build_detail(
         integration: integration_label(task["integrationStatus"].as_str().unwrap_or("")),
         dependencies,
         blocked: blocked.to_owned(),
+        delegation: delegation.to_owned(),
         result: task["result"].as_str().unwrap_or("").to_owned(),
         artifacts: String::new(),
         body: String::new(),
@@ -1654,6 +1678,53 @@ fn apply_agents(app: &mut App, agents: &[Value]) {
     }
 }
 
+/// Host lifecycle notes about delegated work. A continuation is a pane line; an incomplete
+/// delegation also lands in the shared records, because the pane that ended may be the one the
+/// operator is not looking at. Returns whether the event was one of these notes.
+fn task_ids(data: &Value) -> String {
+    data["tasks"]
+        .as_array()
+        .map(|tasks| {
+            tasks
+                .iter()
+                .filter_map(|task| task["taskId"].as_str())
+                .map(short)
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .unwrap_or_default()
+}
+
+fn apply_delegation_note(app: &mut App, agent: Option<&str>, kind: &str, data: &Value) -> bool {
+    let tasks = || data["tasks"].as_array().cloned().unwrap_or_default();
+    match kind {
+        "task_continued" => {
+            if let Some(index) = agent.and_then(|a| app.pane_of(a)) {
+                let attempt = data["attempt"].as_u64().unwrap_or(1);
+                let text = format!(
+                    "[续跑] 第 {attempt} 次：还有 {} 个未完成的子任务",
+                    tasks().len()
+                );
+                app.push_line(index, text, WARN);
+            }
+            true
+        }
+        "task_incomplete" => {
+            let ids = task_ids(data);
+            push_shared(
+                app,
+                format!("[未完成] 主控收工时仍有子任务未完成：{ids}"),
+                WARN,
+            );
+            if let Some(index) = agent.and_then(|a| app.pane_of(a)) {
+                app.push_line(index, format!("[未完成] 仍有子任务未完成：{ids}"), WARN);
+            }
+            true
+        }
+        _ => false,
+    }
+}
+
 fn push_shared(app: &mut App, text: impl Into<String>, color: Color) {
     app.shared_records.push(line(text, color));
     if app.shared_records.len() > 200 {
@@ -1699,6 +1770,7 @@ fn protocol_label(protocol: &str) -> &'static str {
 mod tests {
     use super::*;
     use crate::app::App;
+    use ratatui::text::Line;
 
     #[test]
     fn agents_map_to_one_coordinator_and_three_workers() {
@@ -1754,7 +1826,14 @@ mod tests {
         });
         let mut statuses = HashMap::new();
         statuses.insert("d1".to_owned(), "completed".to_owned());
-        let form = build_detail(1, "t1".into(), &task, "blocked reason", &statuses);
+        let form = build_detail(
+            1,
+            "t1".into(),
+            &task,
+            "blocked reason",
+            "已由宿主续跑 2 次",
+            &statuses,
+        );
         assert_eq!(form.pane, 1);
         assert_eq!(form.task_id, "t1");
         assert_eq!(form.status, "已完成");
@@ -1767,6 +1846,7 @@ mod tests {
         assert_eq!(form.commit, "abc123");
         assert_eq!(form.integration, "未集成");
         assert_eq!(form.blocked, "blocked reason");
+        assert_eq!(form.delegation, "已由宿主续跑 2 次");
         assert_eq!(form.result, "已提交");
         assert_eq!(form.dependencies.len(), 2);
         assert!(
@@ -1786,6 +1866,7 @@ mod tests {
             "t2".into(),
             &json!({"id":"t2","status":"queued"}),
             "",
+            "",
             &statuses,
         );
         assert_eq!(form.worktree, "");
@@ -1798,7 +1879,7 @@ mod tests {
         assert_eq!(form.task_id, "t2");
 
         // The task id falls back to the requested one when the payload omits it.
-        let form = build_detail(0, "t3".into(), &json!({}), "", &statuses);
+        let form = build_detail(0, "t3".into(), &json!({}), "", "", &statuses);
         assert_eq!(form.task_id, "t3");
     }
 
@@ -1869,6 +1950,73 @@ mod tests {
         assert!(lines[0].contains("第二条") && lines[2].contains("第四条"));
         assert!(lines.iter().all(|line| line.starts_with("[用户] ")));
         assert!(requirement_lines(&json!(null)).is_empty());
+    }
+
+    fn flatten(line: &Line<'static>) -> String {
+        line.spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect()
+    }
+
+    #[test]
+    fn delegation_notes_reach_the_pane_and_the_shared_records() {
+        let mut app = App::live();
+        apply_agents(
+            &mut app,
+            &[
+                json!({"id":"c","role":"coordinator","model":"m","baseUrl":"https://a","protocol":"responses"}),
+            ],
+        );
+        let tasks = json!([{"taskId":"4a4b750c-1111-2222-3333-444455556666","status":"completed","integrationStatus":"pending"}]);
+        let history = app.panes[0].history.len();
+        let shared = app.shared_records.len();
+        assert!(apply_delegation_note(
+            &mut app,
+            Some("c"),
+            "task_continued",
+            &json!({"attempt": 2, "tasks": tasks})
+        ));
+        assert_eq!(app.panes[0].history.len(), history + 1);
+        assert_eq!(
+            flatten(app.panes[0].history.last().unwrap()),
+            "[续跑] 第 2 次：还有 1 个未完成的子任务"
+        );
+        assert_eq!(
+            app.shared_records.len(),
+            shared,
+            "a retry is not an incident"
+        );
+
+        assert!(apply_delegation_note(
+            &mut app,
+            Some("c"),
+            "task_incomplete",
+            &json!({"tasks": tasks})
+        ));
+        assert_eq!(
+            flatten(app.panes[0].history.last().unwrap()),
+            "[未完成] 仍有子任务未完成：4a4b750c…"
+        );
+        assert_eq!(app.shared_records.len(), shared + 1);
+        assert_eq!(
+            flatten(app.shared_records.last().unwrap()),
+            "[未完成] 主控收工时仍有子任务未完成：4a4b750c…"
+        );
+
+        // Other lifecycle events are not this helper's business.
+        assert!(!apply_delegation_note(
+            &mut app,
+            Some("c"),
+            "task_finished",
+            &json!({})
+        ));
+        assert!(!apply_delegation_note(
+            &mut app,
+            Some("c"),
+            "integration",
+            &json!({})
+        ));
     }
 
     #[test]

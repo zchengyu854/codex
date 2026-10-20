@@ -392,6 +392,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         if !form.blocked.is_empty() {
             lines.push(line(format!("阻塞原因 {}", form.blocked), WARN));
         }
+        if !form.delegation.is_empty() {
+            lines.push(line(format!("宿主兜底 {}", form.delegation), WARN));
+        }
         if !form.result.is_empty() {
             lines.push(line("结果摘要：", MUTED));
             push_block(&mut lines, &form.result, 200);
@@ -1043,6 +1046,7 @@ mod tests {
             integration: "未集成".into(),
             dependencies: vec![("bbbbbbbb…".into(), "已完成".into())],
             blocked: "dependency did not complete".into(),
+            delegation: "已由宿主续跑 2 次".into(),
             result: String::new(),
             artifacts: "file diff · 12 字节 · /tmp/state/attachments/t/1.txt".into(),
             body: String::new(),
@@ -1060,6 +1064,7 @@ mod tests {
             "依赖（1）",
             "已完成",
             "阻塞原因",
+            "宿主兜底 已由宿主续跑 2 次",
             "file diff",
         ] {
             assert!(text.contains(needle), "detail view is missing {needle:?}");
@@ -1072,6 +1077,7 @@ mod tests {
         form.worktree.clear();
         form.artifacts.clear();
         form.blocked.clear();
+        form.delegation.clear();
         let text = screen(&mut app, 90, 30);
         assert!(text.contains("依赖：无"));
         assert!(text.contains("（空）"));

@@ -42,6 +42,7 @@ fn task(s: &Session) -> Task {
             acceptance: "check".into(),
             dependencies: vec![],
             coding: true,
+            created_by: None,
         },
         status: "completed".into(),
         context_version: 0,

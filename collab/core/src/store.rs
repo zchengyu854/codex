@@ -411,6 +411,20 @@ impl Store {
         tx.commit()?;
         Ok(tasks.len())
     }
+    /// Host-authored lifecycle events (task_continued / task_incomplete) describe what the host
+    /// did to a task, not what a user decided, so they bypass `publish`'s user-kind whitelist.
+    pub fn note(
+        &self,
+        session: &str,
+        agent: Option<&str>,
+        task: Option<&str>,
+        kind: &str,
+        data: &Value,
+    ) -> Result<i64> {
+        let c = self.db.lock().unwrap();
+        append(&c, session, agent, task, kind, data)
+    }
+
     pub fn publish(
         &self,
         session: &str,

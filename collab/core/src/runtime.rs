@@ -169,6 +169,11 @@ impl Runtime {
         send(&mut stdin,json!({"id":1,"method":"initialize","params":{"clientInfo":{"name":"codex_collab","version":"0.1.0"},"capabilities":{"experimentalApi":true}}})).await?;
         let mut initialized = false;
         let mut started = false;
+        let mut thread: Option<String> = None;
+        let mut next_id = 4u64;
+        let mut continuations = 0u32;
+        let mut stalled = 0u32;
+        let mut previous: Option<String> = None;
         let mut output = String::new();
         let mut stream_redactor = crate::secrets::StreamRedactor::new(vec![
             gateway.token.clone(),
@@ -188,15 +193,17 @@ impl Runtime {
             if value["id"] == 1 && !initialized {
                 initialized = true;
                 send(&mut stdin, json!({"method":"initialized"})).await?;
-                send(&mut stdin,json!({"id":2,"method":"thread/start","params":{"model":agent.model,"modelProvider":"collab","cwd":path,"approvalPolicy":"on-request","sandbox":if task.request.coding{"workspace-write"}else{"read-only"},"ephemeral":false,"dynamicTools":tools(agent.role==Role::Coordinator),"developerInstructions":"You are part of a shared coding session. Use collab tools for coordination. Worker output is a proposal until reviewed. Never spawn additional agents. Never push or modify another task's worktree. Complete the assigned goal and report evidence. The gateway supplies current shared records before every model request."}})).await?;
+                send(&mut stdin,json!({"id":2,"method":"thread/start","params":{"model":agent.model,"modelProvider":"collab","cwd":path,"approvalPolicy":"on-request","sandbox":if task.request.coding{"workspace-write"}else{"read-only"},"ephemeral":false,"dynamicTools":tools(agent.role==Role::Coordinator),"developerInstructions":DEVELOPER_INSTRUCTIONS}})).await?;
                 continue;
             }
             if value["id"] == 2 && !started {
                 started = true;
-                let thread = value["result"]["thread"]["id"]
+                let started_thread = value["result"]["thread"]["id"]
                     .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("thread/start returned no thread"))?;
-                send(&mut stdin,json!({"id":3,"method":"turn/start","params":{"threadId":thread,"input":[{"type":"text","text":format!("Task: {}\nAcceptance: {}",task.request.goal,task.request.acceptance),"text_elements":[]}]}})).await?;
+                    .ok_or_else(|| anyhow::anyhow!("thread/start returned no thread"))?
+                    .to_owned();
+                thread = Some(started_thread.clone());
+                send(&mut stdin,json!({"id":3,"method":"turn/start","params":{"threadId":started_thread,"input":[{"type":"text","text":format!("Task: {}\nAcceptance: {}\n{}",task.request.goal,task.request.acceptance,COMMIT_RULE),"text_elements":[]}]}})).await?;
                 continue;
             }
             let method = value["method"].as_str().unwrap_or("");
@@ -313,7 +320,73 @@ impl Runtime {
                     }
                     bail!("Agent turn failed or interrupted: {}", clip(&detail, 500));
                 }
-                break;
+                // A coordinator turn can end while work it delegated is still queued, running or
+                // unintegrated. The model then reports success and the operator has to notice the
+                // half-done session by eye, so nudge the same thread instead of accepting it.
+                let pending =
+                    unfinished_delegated(&self.store, &task.request.session_id, &task.id)?;
+                if pending.is_empty() {
+                    break;
+                }
+                let summary: Vec<Value> = pending.iter().map(delegated_summary).collect();
+                let signature = pending
+                    .iter()
+                    .map(|t| format!("{}:{}:{}", t.id, t.status, t.integration_status))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                stalled = if previous.as_deref() == Some(signature.as_str()) {
+                    stalled + 1
+                } else {
+                    0
+                };
+                previous = Some(signature);
+                if continuations >= MAX_CONTINUATIONS || stalled >= MAX_STALLED_CONTINUATIONS {
+                    self.store.note(
+                        &agent.session_id,
+                        Some(&agent.id),
+                        Some(&task.id),
+                        "task_incomplete",
+                        &json!({
+                            "tasks": summary,
+                            "reason": if stalled >= MAX_STALLED_CONTINUATIONS {
+                                "no progress between nudges"
+                            } else {
+                                "continuation budget exhausted"
+                            },
+                        }),
+                    )?;
+                    let _ = self.updates.send(json!({"kind":"task_changed","sessionId":agent.session_id,"agentId":agent.id,"taskId":task.id}));
+                    break;
+                }
+                continuations += 1;
+                self.store.note(
+                    &agent.session_id,
+                    Some(&agent.id),
+                    Some(&task.id),
+                    "task_continued",
+                    &json!({"attempt": continuations, "tasks": summary}),
+                )?;
+                let mut listed = String::new();
+                for t in &pending {
+                    listed.push_str(&format!(
+                        "- {} status={} integration={} goal={}\n",
+                        t.id,
+                        t.status,
+                        t.integration_status,
+                        clip(&t.request.goal, 160)
+                    ));
+                }
+                let nudge = format!(
+                    "Your turn ended, but work you created is still unfinished:\n{listed}\
+Continue now: wait for it, review its diff, integrate it when it is coding, and only then report. Do not create replacement tasks unless one failed."
+                );
+                let id = next_id;
+                next_id += 1;
+                let thread = thread
+                    .as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("continuation without a thread"))?;
+                send(&mut stdin,json!({"id":id,"method":"turn/start","params":{"threadId":thread,"input":[{"type":"text","text":nudge,"text_elements":[]}]}})).await?;
+                continue;
             }
         }
         // Terminate the app-server before collecting files so it cannot race the commit.
@@ -364,11 +437,12 @@ impl Runtime {
                 );
                 let mut args = args.clone();
                 args["sessionId"] = json!(agent.session_id);
-                let request: TaskRequest = serde_json::from_value(args)?;
+                let mut request: TaskRequest = serde_json::from_value(args)?;
                 ensure!(
                     request.agent_id != agent.id,
                     "coordinator cannot queue work to itself while running"
                 );
+                request.created_by = Some(task.id.clone());
                 Ok(serde_json::to_value(self.store.create_task(request)?)?)
             }
             "collab_cancel_task" => {
@@ -553,7 +627,7 @@ impl Runtime {
             )?),
             "agent/testConnection" => {
                 let agent = self.store.agent(required(&args, "agentId")?)?;
-                let t=self.store.create_task(TaskRequest{session_id:agent.session_id,agent_id:agent.id,goal:"Connection capability test: first call collab_publish with kind=result and data=connection_probe_ok, then answer connection_probe_ok. Do not read files or run shell commands.".into(),acceptance:"Successful streaming response and collab_publish tool call; inspect task evidence and shared result event.".into(),dependencies:vec![],coding:false})?;
+                let t=self.store.create_task(TaskRequest{session_id:agent.session_id,agent_id:agent.id,goal:"Connection capability test: first call collab_publish with kind=result and data=connection_probe_ok, then answer connection_probe_ok. Do not read files or run shell commands.".into(),acceptance:"Successful streaming response and collab_publish tool call; inspect task evidence and shared result event.".into(),dependencies:vec![],coding:false,created_by:None})?;
                 Ok(serde_json::to_value(t)?)
             }
             "agent/connectionResult" => {
@@ -573,9 +647,13 @@ impl Runtime {
                     json!({"taskId":task.id,"status":task.status,"verified":verified,"capabilities":if verified{vec!["text","stream","function_tools"]}else{vec![]}}),
                 )
             }
-            "task/create" => Ok(serde_json::to_value(
-                self.store.create_task(serde_json::from_value(args)?)?,
-            )?),
+            "task/create" => {
+                let mut request: TaskRequest = serde_json::from_value(args)?;
+                // Delegation provenance is host-authored: a client cannot claim a task on behalf
+                // of another task.
+                request.created_by = None;
+                Ok(serde_json::to_value(self.store.create_task(request)?)?)
+            }
             "task/list" => Ok(serde_json::to_value(
                 self.store.tasks(required(&args, "sessionId")?)?,
             )?),
@@ -653,6 +731,53 @@ impl Drop for ProcessGroup {
 fn tool(name: &str, description: &str, properties: Value, required: Vec<&str>) -> Value {
     json!({"type":"function","name":name,"description":description,"inputSchema":{"type":"object","properties":properties,"required":required,"additionalProperties":false}})
 }
+/// The host commits every workspace after the turn, so a worker that commits on its own spends
+/// approvals and turns on work that is already done. The sentence is repeated in every task prompt
+/// because the standing instruction alone was not enough for the model this was built against.
+pub const COMMIT_RULE: &str =
+    "Do not run git commit, git add or git config: the host commits the workspace after your turn.";
+
+pub const DEVELOPER_INSTRUCTIONS: &str = "You are part of a shared coding session. Use collab \
+tools for coordination. Worker output is a proposal until reviewed. Never spawn additional agents. \
+Never push or modify another task's worktree. Do not run git commit, git add or git config: the \
+host commits the workspace after your turn. Complete the assigned goal and report evidence. The \
+gateway supplies current shared records before every model request.";
+
+/// How many times a turn may be restarted because delegated work is still unfinished.
+///
+/// The model this was built against drops the mutating tool call at the end of a turn roughly once
+/// per step, so a two-task delegation needs more than two nudges. The budget is paired with the
+/// stall guard below: every nudge must change the unfinished set.
+pub const MAX_CONTINUATIONS: u32 = 6;
+/// Stop after this many nudges in a row that saw the same unfinished set: the model is stuck rather
+/// than one step behind, and more turns would only spend tokens.
+pub const MAX_STALLED_CONTINUATIONS: u32 = 2;
+
+/// Tasks created by `parent` that still need something: they are queued or running, or they are a
+/// finished coding task that was never integrated. Failed, cancelled and blocked tasks count too:
+/// the coordinator has to report them rather than let them disappear.
+fn unfinished_delegated(store: &Store, session: &str, parent: &str) -> Result<Vec<Task>> {
+    Ok(store
+        .tasks(session)?
+        .into_iter()
+        .filter(|t| t.request.created_by.as_deref() == Some(parent))
+        .filter(|t| match t.status.as_str() {
+            "completed" => t.request.coding && t.integration_status != "integrated",
+            _ => true,
+        })
+        .collect())
+}
+
+fn delegated_summary(task: &Task) -> Value {
+    json!({
+        "taskId": task.id,
+        "agentId": task.request.agent_id,
+        "status": task.status,
+        "integrationStatus": task.integration_status,
+        "goal": clip(&task.request.goal, 200),
+    })
+}
+
 pub fn tools(coordinator: bool) -> Vec<Value> {
     let mut list = vec![
         tool(

@@ -50,8 +50,38 @@ async fn setup() -> (
 ) {
     setup_with(FIXTURE).await
 }
+const CONTINUATION_FIXTURE: &str = r#"#!/usr/bin/python3
+import sys, json
+turn = 0
+worker = 'aaaaaaaa-0000-4000-8000-000000000002'
+def emit(v): print(json.dumps(v), flush=True)
+for line in sys.stdin:
+    value = json.loads(line)
+    method = value.get('method')
+    if method == 'initialize': emit({'id': value['id'], 'result': {}})
+    elif method == 'thread/start': emit({'id': value['id'], 'result': {'thread': {'id': 'fixture-thread'}}})
+    elif method == 'turn/start':
+        turn += 1
+        emit({'id': value['id'], 'result': {'turn': {'id': 'fixture-turn-%d' % turn}}})
+        if turn == 1:
+            emit({'id': 'create-1', 'method': 'item/tool/call', 'params': {'tool': 'collab_create_task', 'arguments': {'agentId': worker, 'goal': 'phantom delegated work', 'acceptance': 'not really checked', 'coding': True, 'dependencies': []}}})
+        emit({'method': 'item/completed', 'params': {'item': {'type': 'agentMessage', 'id': 'msg-%d' % turn, 'text': 'turn-%d' % turn}}})
+        emit({'method': 'turn/completed', 'params': {'turn': {'status': 'completed'}}})
+"#;
 async fn setup_with(
     fixture: &str,
+) -> (
+    TempDir,
+    TempDir,
+    Arc<Runtime>,
+    Task,
+    tokio::task::JoinHandle<()>,
+) {
+    setup_as(fixture, Role::Worker).await
+}
+async fn setup_as(
+    fixture: &str,
+    role: Role,
 ) -> (
     TempDir,
     TempDir,
@@ -103,7 +133,7 @@ async fn setup_with(
     let a = Agent {
         id: id(),
         session_id: sid.clone(),
-        role: Role::Worker,
+        role: role.clone(),
         model: "fixture".into(),
         base_url: "http://127.0.0.1:1/v1".into(),
         protocol: Protocol::Responses,
@@ -113,6 +143,24 @@ async fn setup_with(
     secrets
         .set(&a.id, Secret::new("upstream-test-secret".into()).unwrap())
         .unwrap();
+    if role == Role::Coordinator {
+        let worker = Agent {
+            id: "aaaaaaaa-0000-4000-8000-000000000002".into(),
+            session_id: sid.clone(),
+            role: Role::Worker,
+            model: "fixture".into(),
+            base_url: "http://127.0.0.1:1/v1".into(),
+            protocol: Protocol::Responses,
+            context_bytes: 128_000,
+        };
+        store.configure(&worker).unwrap();
+        secrets
+            .set(
+                &worker.id,
+                Secret::new("upstream-test-secret".into()).unwrap(),
+            )
+            .unwrap();
+    }
     let t = store
         .create_task(TaskRequest {
             session_id: sid,
@@ -121,6 +169,7 @@ async fn setup_with(
             acceptance: "fixture".into(),
             dependencies: vec![],
             coding: false,
+            created_by: None,
         })
         .unwrap();
     let schedule = rt.start();
@@ -200,6 +249,84 @@ async fn failed_turn_surfaces_the_protocol_error_message() {
         result.contains("upstream authentication failed"),
         "the protocol error text is not surfaced: {result}"
     );
+}
+#[test]
+fn the_commit_rule_reaches_both_prompts() {
+    use codex_collab_core::runtime::{COMMIT_RULE, DEVELOPER_INSTRUCTIONS};
+    assert!(DEVELOPER_INSTRUCTIONS.contains(COMMIT_RULE));
+    // The line breaks in the constant must not swallow the spaces around them.
+    assert!(DEVELOPER_INSTRUCTIONS.contains("collab tools for coordination"));
+    assert!(DEVELOPER_INSTRUCTIONS.contains("the host commits the workspace"));
+    assert!(DEVELOPER_INSTRUCTIONS.contains("before every model request"));
+}
+#[tokio::test]
+async fn a_turn_that_leaves_delegated_work_is_continued_then_flagged() {
+    let (_repo, _root, rt, t, _schedule) = setup_as(CONTINUATION_FIXTURE, Role::Coordinator).await;
+    let done = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+        loop {
+            let task = rt.store.task(&t.id).unwrap();
+            if task.status != "running" && task.status != "queued" {
+                break task;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the coordinator task never reached a terminal state");
+    assert_eq!(done.status, "completed", "{done:?}");
+
+    let events = rt.store.events(&t.request.session_id, 0, 500).unwrap();
+    let texts: Vec<String> = events
+        .iter()
+        .filter(|e| e.kind == "public_message")
+        .map(|e| e.data["text"].as_str().unwrap_or("").to_owned())
+        .collect();
+    // Two nudges really reached the model: each continuation produced another turn.
+    assert!(texts.iter().any(|t| t == "turn-2"), "{texts:?}");
+    assert!(texts.iter().any(|t| t == "turn-3"), "{texts:?}");
+    let continued: Vec<&serde_json::Value> = events
+        .iter()
+        .filter(|e| e.kind == "task_continued")
+        .map(|e| &e.data)
+        .collect();
+    // At least one nudge reached the model; the exact count depends on whether the delegated task
+    // changed status between turns, which the stall guard counts differently.
+    assert!(
+        !continued.is_empty() && continued.len() <= 6,
+        "{continued:?}"
+    );
+    assert_eq!(continued[0]["attempt"], 1);
+    for (index, nudge) in continued.iter().enumerate() {
+        assert_eq!(nudge["attempt"], index as u64 + 1, "{continued:?}");
+    }
+    let flagged: Vec<&serde_json::Value> = events
+        .iter()
+        .filter(|e| e.kind == "task_incomplete")
+        .map(|e| &e.data)
+        .collect();
+    assert_eq!(flagged.len(), 1, "{flagged:?}");
+    assert!(
+        matches!(
+            flagged[0]["reason"].as_str(),
+            Some("no progress between nudges" | "continuation budget exhausted")
+        ),
+        "{flagged:?}"
+    );
+    // It is unfinished whichever side of the queue it is on: never integrated, so the nudge was
+    // right to fire.
+    assert!(matches!(
+        flagged[0]["tasks"][0]["status"].as_str(),
+        Some("queued" | "running" | "completed")
+    ));
+    assert_eq!(flagged[0]["tasks"][0]["integrationStatus"], "pending");
+
+    // The delegated task carries host-authored provenance.
+    let delegated = rt.store.tasks(&t.request.session_id).unwrap();
+    let child = delegated
+        .iter()
+        .find(|task| task.request.agent_id != t.request.agent_id)
+        .expect("no delegated task");
+    assert_eq!(child.request.created_by.as_deref(), Some(t.id.as_str()));
 }
 #[tokio::test]
 async fn cancel_while_awaiting_approval_cleans_up_and_rejects_late_choice() {

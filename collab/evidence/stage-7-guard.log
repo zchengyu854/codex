@@ -1,0 +1,206 @@
+# stage 7 real multi-agent collaboration
+Tue Oct 20 13:46:36 CST 2026
+# 端点按阶段 6/7 的安全边界脱敏；密钥只经 TUI 的 Ctrl+K 进入 Keychain，脚本与日志都不接触它
+
+## 环境
+状态目录 /private/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/codex-collab-stage7-live
+会话     6d5d6f0f-ad1f-417e-8934-201111fa4ed0
+Agent    …0001 · coordinator agnes-3.0-flash · chat_completions · 预算 128000 字节
+Agent    …0002 · worker      agnes-3.0-flash · chat_completions · 预算 128000 字节
+Agent    …0003 · worker      agnes-3.0-flash · chat_completions · 预算 128000 字节
+端点     https://<provider>/v1（脚本默认脱敏；真实值只在状态目录与 Keychain）
+
+## 场景：一条派发，两个带依赖的文件
+派发 232cb4b5；本会话此前已有 13 个任务
+
+时间线（只列本次新建的任务）：
+      0.0s  232cb4b5  …0001  queued     pending
+      1.5s  232cb4b5  …0001  running    pending
+     57.3s  3286a6cd  …0002  running    pending
+     76.9s  8e5c3419  …0003  queued     pending
+     79.9s  3286a6cd  …0002  completed  pending
+    114.6s  3286a6cd  …0002  completed  integrated
+    114.6s  8e5c3419  …0003  running    pending
+    170.3s  8e5c3419  …0003  completed  pending
+    207.9s  8e5c3419  …0003  completed  integrated
+    221.5s  232cb4b5  …0001  completed  pending
+
+依赖门：下游 8e5c3419 首次 running 在 114.6s，前置 3286a6cd 变 integrated 在 114.6s；此前下游一直 queued（是）→ 成立
+
+任务：
+  232cb4b5 · …0001 · completed · 集成 pending · 依赖 无 · 提交 — · 由 — 创建
+    目标   Run this delegation in one turn, without stopping to ask the user. Step 1: call collab_create_task for the first agent with role worker in the roster, with goa…
+    自述   Now creating the second worker task with a dependency on the first: |  |  | Both tasks created; now waiting on the g.txt task: |  | Diff only adds `g.txt` with `eta` — integrating: |  |  | g.txt task integrated. Now waiting on the h.txt task: |  | h.txt task …
+  3286a6cd · …0002 · completed · 集成 integrated · 依赖 无 · 提交 6005323c · 由 232cb4b5 创建
+    目标   Create g.txt containing the single word eta
+    自述   Creating `g.txt` with the single word `eta`. |  |  | Created `g.txt` containing exactly `eta`. No existing files modified and no git commands run. |  | Done — `g.txt` is created with the single word `eta`, and the result has been published for review and inte…
+  8e5c3419 · …0003 · completed · 集成 integrated · 依赖 3286a6cd · 提交 ddf321eb · 由 232cb4b5 创建
+    目标   Create h.txt containing the single word theta
+    自述   Created `h.txt` containing exactly `theta`. No existing files modified; no git commands run. |  | Done — `h.txt` created with the single word `theta`, and the result has been published for review and integration.
+
+## 宿主兜底（模型提前收工时）
+  续跑第 1 次（rev 224）：3286a6cd completed/pending, 8e5c3419 queued/pending
+  续跑第 2 次（rev 234）：8e5c3419 running/pending
+
+## 审批
+0 条（--approve 放行时会逐条打印命令与理由）
+
+## 集成
+  task 3286a6cd · integrated · 81724b6c → e3989c9d · 任务提交 6005323c
+  task 8e5c3419 · integrated · e3989c9d → 30a0cba1 · 任务提交 ddf321eb
+
+## 协作分支
+HEAD 30a0cba1
+  g.txt · 'eta' · ok
+  h.txt · 'theta' · ok
+原始仓库未被改动：是
+最近提交：['30a0cba Collaborative task result', 'e3989c9 Collaborative task result', '81724b6 Collaborative task result', '78fee2b Collaborative task result']
+令牌（本会话累计）：…0001 572914, …0002 359093, …0003 164548
+
+## 结论
+通过：两个工作任务都完成并集成，依赖门成立，协作分支同时带两个文件。
+
+说明：这条链路里「提交」由宿主负责，worker 不再自己 `git add/commit`；模型的收尾由宿主兜底，
+每次续跑写进主控窗格与任务详情（宿主兜底一行），最后的未完成标记还会进共享记录。
+
+## 界面快照（34x132，真实宿主，最终状态）
+
+›_ codex-collab  会话 6d5d6f0f…
+左侧主控 / 右侧三个工作终端
+┌ ▶ 1 主控 · agnes-3.0-flash [已完成] ────────────────────┐┌ 2 工作1 · agnes-3.0-flash [已完成] ───────────────────────────────────┐
+│https://<provider>/v1      / Chat Completions · 128000 字││https://<provider>/v1      / Chat Completions · 128000 字节预算        │
+│主控 › h.txt task completed. Reviewing its diff:         ││[产物] full result                                                     │
+│主控 › Diff only adds `h.txt` with `theta` — integrating:││[产物] file diff                                                       │
+│主控 › Both worker tasks are complete and integrated into││[任务] 已完成 Creating `g.txt` with the single word `eta`.Created      │
+│the collaboration branch.- g.txt (contains `eta`): commit││`g.txt` containing exactly `eta`. No existing files modified and no git│
+│`6005323c84a2a115044890e52cd0fea5d7cef55b`- h.txt        ││commands run.Done — `g.txt` is created with the single word `eta`, and │
+│(contains `theta`): commit                               ││the result has been published for review and integration.              │
+│`ddf321eb0db639d01f416854b773962fa63cd5d2`The h.txt task ││❯                                                                      │
+│only started after the g.txt task was integrated (its    │└───────────────────────────────────────────────────────────────────────┘
+│base commit matches the post-integration head), and both │┌ 3 工作2 · agnes-3.0-flash [已完成] ───────────────────────────────────┐
+│integrations report status `integrated`.                 ││https://<provider>/v1      / Chat Completions · 128000 字节预算        │
+│[产物] full result                                       ││[产物] file diff                                                       │
+│[任务] 已完成 Now creating the second worker task with a ││[任务] 已完成 Created `h.txt` containing exactly `theta`. No existing  │
+│dependency on the first:Both tasks created; now waiting  ││files modified; no git commands run.Done — `h.txt` created with the    │
+│on the g.txt task:Diff only adds `g.txt` with `eta` —    ││single word `theta`, and the result has been published for review and  │
+│integrating:g.txt task integrated. Now waiting on the    ││integration.                                                           │
+│h.txt task:h.txt task completed. Reviewing its diff:Diff ││❯                                                                      │
+│only adds `h.txt` with `theta` — integrating:Both worker │└───────────────────────────────────────────────────────────────────────┘
+│tasks are complete and integrated into the collaboration │┌ 4 工作3 · — [未配置] ─────────────────────────────────────────────────┐
+│branch.- g.txt (contains `eta`): commit                  ││— / —                                                                  │
+│`6005323c84a2a115044890e52cd0fea5d7cef55b`- h.txt        ││                                                                       │
+│(contains `theta`): commit                               ││                                                                       │
+│`ddf321eb0db639d01f416854b773962fa63cd5d2`The h.txt task ││                                                                       │
+│only started after the g.txt task was integrated (its    ││                                                                       │
+│base commit matches the post-integration head), and both ││                                                                       │
+│integrations report status `integrated`.                 ││                                                                       │
+│❯                                                        ││❯                                                                      │
+└─────────────────────────────────────────────────────────┘└───────────────────────────────────────────────────────────────────────┘
+[1 主控] 编码:关  Tab 焦点  F2 放大  F3 共享  Ctrl+A 配置  Ctrl+L 会话  Ctrl+K 密钥  Ctrl+R 刷新  Ctrl+C 停止  Ctrl+Q 退出
+Ctrl+T 自检  Ctrl+U 约束  Ctrl+O 结果  Ctrl+D 详情  Ctrl+F 编排  Ctrl+E 编码  Ctrl+G 审查集成  Ctrl+P 压缩  Ctrl+N 新建
+已连接后台（collab/target/debug/codex-collab-core /private/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/codex-collab-stage7-live
+
+›_ codex-collab  会话 6d5d6f0f…
+左侧主控 / 右侧三个工作终端
+┌ ▶ 1 主控 · agnes-3.0-flash [已完成] ────────────────────┐┌ 2 工作1 · agnes-3.0-flash [已完成] ───────────────────────────────────┐
+│https://<provider>/v1      / Chat Completions · 128000 字││https://<provider>/v1      / Chat Completions · 128000 字节预算        │
+│(contains `theta`): commit                               ││[任务] 已完成 Creating `g.txt` with the single word `eta`.Created      │
+│`ddf321eb0db639d01f416854b773962fa63cd5d2`The h.txt task ││`g.txt` containing exactly `eta`. No existing files modified and no git│
+│only started after the g.txt task was integrated (its    ││commands run.Done — `g.txt` is created with the single word `eta`, and │
+│base commit matches the post-integration head), and both ││the result has been published for review and integration.              │
+│integrations report status `integrated`.                 ││❯                                                                      │
+│[产物] full result                                       │└───────────────────────────────────────────────────────────────────────┘
+│[任务] 已完成 Now creating the second worker task with a │┌ 3 工作2 · agnes-3.0-flash [已完成] ───────────────────────────────────┐
+│dependency on the first:Both tasks created; now waiting  ││https://<provider>/v1      / Chat Completions · 128000 字节预算        │
+│on the g.txt task:Diff only adds `g.txt` with `eta` —    ││[任务] 已完成 Created `h.txt` containing exactly `theta`. No existing  │
+│integrating:g.txt task integrated. Now waiting on the    ││files modified; no git commands run.Done — `h.txt` created with the    │
+│h.txt task:h.txt task completed. Reviewing its diff:Diff ││single word `theta`, and the result has been published for review and  │
+│only adds `h.txt` with `theta` — integrating:Both worker ││integration.                                                           │
+│tasks are complete and integrated into the collaboration ││❯                                                                      │
+│branch.- g.txt (contains `eta`): commit                  │└───────────────────────────────────────────────────────────────────────┘
+│`6005323c84a2a115044890e52cd0fea5d7cef55b`- h.txt        │┌ 4 工作3 · — [未配置] ─────────────────────────────────────────────────┐
+│(contains `theta`): commit                               ││— / —                                                                  │
+│`ddf321eb0db639d01f416854b773962fa63cd5d2`The h.txt task ││                                                                       │
+│only started after the g.txt task was integrated (its    ││                                                                       │
+│base commit matches the post-integration head), and both ││                                                                       │
+│integrations report status `integrated`.                 ││                                                                       │
+│❯                                                        ││❯                                                                      │
+└─────────────────────────────────────────────────────────┘└───────────────────────────────────────────────────────────────────────┘
+┌ 共享记录 · F3 收起 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│[用户] 保留公开接口：只新建文件，不改既有文件；测试通过                                                                           │
+│[未完成] 主控收工时仍有子任务未完成：3f4f4030…                                                                                    │
+│                                                                                                                                  │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+[1 主控] 编码:关  Tab 焦点  F2 放大  F3 共享  Ctrl+A 配置  Ctrl+L 会话  Ctrl+K 密钥  Ctrl+R 刷新  Ctrl+C 停止  Ctrl+Q 退出
+Ctrl+T 自检  Ctrl+U 约束  Ctrl+O 结果  Ctrl+D 详情  Ctrl+F 编排  Ctrl+E 编码  Ctrl+G 审查集成  Ctrl+P 压缩  Ctrl+N 新建
+已连接后台（collab/target/debug/codex-collab-core /private/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/codex-collab-stage7-live
+
+›_ codex-collab  会话 6d5d6f0f…
+左侧主┌ 任务详情 · task/get 状态、工作区与结果 ──────────────────────────────────────────────────────────────────────────────┐
+┌ ▶ 1 │任务 232cb4b5… · 已完成 · 编码 关                                                                                     │─────┐
+│https│窗格 1 主控 · Agent 77777777-0000-4000-8000-000000000001                                                              │     │
+│主控 │上下文版本 252 · 集成 未集成                                                                                          │     │
+│主控 │工作区                                                                                                                │     │
+│主控 │/private/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/codex-collab-stage7-live/worktrees/6d5d6f0f-ad1f-417e-8934-20│     │
+│the c│1111fa4ed0/232cb4b5-60d1-46e4-9a64-bc3e39bee5aa                                                                       │o git│
+│`6005│基线 81724b6c680e96d55d37acd6c0d6bba1bdee1374                                                                         │ and │
+│(cont│候选提交 —                                                                                                            │     │
+│`ddf3│                                                                                                                      │     │
+│only │目标：                                                                                                                │─────┘
+│base │Run this delegation in one turn, without stopping to ask the user. Step 1: call collab_create_task for the first agent│─────┐
+│integ│with role worker in the roster, with goal 'Create g.txt containing the single word eta', acceptance 'g.txt contains   │     │
+│[产物│exactly eta', coding true and no dependencies. Step 2: immediately call collab_create_task again for the second       │     │
+│[任务│worker, with goal 'Create h.txt containing the single word theta', acceptance 'h.txt contains exactly theta', coding  │ing  │
+│depen│true, and dependencies set to the task id returned by step 1. Step 3: call collab_wait_task on the g.txt task until it│e    │
+│on th│is completed. Step 4: call collab_review_diff for the g.txt task, then collab_integrate with that exact commit once   │and  │
+│integ│the diff only adds g.txt. Step 5: call collab_wait_task on the h.txt task until it is completed, then                 │     │
+│h.txt│collab_review_diff and collab_integrate the same way. Step 6: only after both integrations report integrated, answer  │     │
+│only │with the two commit hashes. Do not finish after creating the tasks, and do not skip the integrations: the job is the  │─────┘
+│tasks│reviewed and integrated result, not the delegation.                                                                   │─────┐
+│branc│验收标准：                                                                                                            │     │
+│`6005│Both worker tasks are completed and integrated into the collaboration branch, g.txt contains eta, h.txt contains      │     │
+│(cont│theta, and the h.txt task only started after the g.txt task was integrated.                                           │     │
+│`ddf3│依赖：无                                                                                                              │     │
+│only │宿主兜底 已由宿主续跑 2 次                                                                                            │     │
+│base │结果摘要：                                                                                                            │     │
+│integ│                                                                                                                      │     │
+│❯    │Now creating the second worker task with a dependency on the first:                                                   │     │
+└─────│                                                                                                                      │─────┘
+[1 主控                                                                                                                      │
+Ctrl+T└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+任务 232cb4b5… 详情已加载：PgUp/PgDn 滚动，Ctrl+R 刷新。
+
+›_ codex-collab  会话 6d5d6f0f…
+左侧主┌ 任务详情 · task/get 状态、工作区与结果 ──────────────────────────────────────────────────────────────────────────────┐
+┌ 1 主│任务 8e5c3419… · 已完成 · 编码 开（产物需集成）                                                                       │─────┐
+│https│窗格 3 工作2 · Agent 77777777-0000-4000-8000-000000000003                                                             │     │
+│主控 │上下文版本 241 · 集成 已集成                                                                                          │     │
+│主控 │工作区                                                                                                                │     │
+│主控 │/private/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/codex-collab-stage7-live/worktrees/6d5d6f0f-ad1f-417e-8934-20│     │
+│the c│1111fa4ed0/8e5c3419-13b3-4a91-b667-7a1e858aceb4                                                                       │o git│
+│`6005│基线 e3989c9d50688810b646a71c7cb215b7af8c3b70                                                                         │ and │
+│(cont│候选提交 ddf321eb0db639d01f416854b773962fa63cd5d2                                                                     │     │
+│`ddf3│                                                                                                                      │     │
+│only │目标：                                                                                                                │─────┘
+│base │Create h.txt containing the single word theta                                                                         │─────┐
+│integ│验收标准：                                                                                                            │     │
+│[产物│h.txt contains exactly theta                                                                                          │     │
+│[任务│依赖（1）：                                                                                                           │ing  │
+│depen│  3286a6cd… · 已完成                                                                                                  │e    │
+│on th│结果摘要：                                                                                                            │and  │
+│integ│                                                                                                                      │     │
+│h.txt│Created `h.txt` containing exactly `theta`. No existing files modified; no git commands run.                          │     │
+│only │                                                                                                                      │─────┘
+│tasks│Done — `h.txt` created with the single word `theta`, and the result has been published for review and integration.    │─────┐
+│branc│产物：                                                                                                                │     │
+│`6005│full result · 212 字节 ·                                                                                              │     │
+│(cont│/private/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/codex-collab-stage7-live/attachments/8e5c3419-13b3-4a91-b667-│     │
+│`ddf3│7a…                                                                                                                   │     │
+│only │file diff · 117 字节 ·                                                                                                │     │
+│base │/private/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/codex-collab-stage7-live/attachments/8e5c3419-13b3-4a91-b667-│     │
+│integ│7a…                                                                                                                   │     │
+│❯    │完整结果（附件，本机只读）：                                                                                          │     │
+└─────│                                                                                                                      │─────┘
+[3 工作Created `h.txt` containing exactly `theta`. No existing files modified; no git commands run.                          │
+Ctrl+T└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+任务 8e5c3419… 详情已加载：PgUp/PgDn 滚动，Ctrl+R 刷新。

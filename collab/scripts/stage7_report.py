@@ -33,7 +33,121 @@ def timeline_block(entries):
     return out
 
 
+def retry(run):
+    """Render one guarded run: what the host nudged, what it spent and what it finally flagged."""
+    add = print
+    add("## 环境")
+    add(f"状态目录 {run['state']}")
+    add(f"会话     {run['session']}")
+    for agent_id, agent in run["agents"].items():
+        add(
+            f"Agent    {short(agent_id)} · {agent['role']:<11} {agent['model']} · "
+            f"{agent['protocol']} · 预算 {agent['contextBytes']} 字节"
+        )
+    first_agent = next(iter(run["agents"].values()))
+    add(f"端点     {first_agent['baseUrl']}（脚本默认脱敏；真实值只在状态目录与 Keychain）")
+    add("")
+
+    add("## 场景：一条派发，两个带依赖的文件")
+    add(f"派发 {run['dispatch']['taskId'][:8]}；本会话此前已有 {run.get('priorTasks', 0)} 个任务")
+    add("")
+    add("时间线（只列本次新建的任务）：")
+    for entry in run["timeline"]:
+        add(
+            f"  {entry['at']:>7.1f}s  {entry['task']}  {entry.get('agent', '?')}  "
+            f"{entry['status']:<10} {entry.get('integrationStatus') or '—'}"
+        )
+    add("")
+    gate = run["gate"]
+    at = lambda value: "—" if value is None else f"{value:.1f}s"  # noqa: E731
+    add(
+        "依赖门：下游 {} 首次 running 在 {}，前置 {} 变 integrated 在 {}；此前下游一直 queued（{}）→ {}".format(
+            gate["dependent"],
+            at(gate["dependentStartedAt"]),
+            gate["dependency"],
+            at(gate["dependencyIntegratedAt"]),
+            "是" if gate["wasQueued"] else "否",
+            "成立" if gate["ok"] else "不成立",
+        )
+    )
+    add("")
+    add("任务：")
+    for task_id, task in run["tasks"].items():
+        deps = ", ".join(d[:8] for d in task["dependencies"]) or "无"
+        add(
+            f"  {task_id[:8]} · {short(task['agentId'])} · {task['status']} · "
+            f"集成 {task['integrationStatus']} · 依赖 {deps} · 提交 {(task['commit'] or '—')[:8]} · "
+            f"由 {(task.get('createdBy') or '—')[:8]} 创建"
+        )
+        add(f"    目标   {clip(task['goal'], 160)}")
+        add(f"    自述   {clip(task['result'], 260)}")
+    add("")
+
+    add("## 宿主兜底（模型提前收工时）")
+    continuations = run.get("continuations") or []
+    if not continuations:
+        add("本轮没有触发兜底：主控自己走完了全部步骤。")
+    for event in continuations:
+        data = event["data"]
+        pending = data.get("tasks") or []
+        listed = ", ".join(
+            f"{t['taskId'][:8]} {t['status']}/{t['integrationStatus']}" for t in pending
+        )
+        if event["kind"] == "task_continued":
+            add(f"  续跑第 {data.get('attempt')} 次（rev {event['revision']}）：{listed}")
+        else:
+            add(f"  标记未完成（rev {event['revision']}，{data.get('reason')}）：{listed}")
+    add("")
+
+    add("## 审批")
+    approvals = run["approvals"]
+    add(f"{len(approvals)} 条（--approve 放行时会逐条打印命令与理由）")
+    for approval in approvals:
+        add(f"  - {approval['params'].get('command')}")
+        add(f"    理由 {clip(approval['params'].get('reason'), 200)}")
+    add("")
+
+    add("## 集成")
+    for event in run["integrations"]:
+        data = event["data"]
+        if data.get("status") == "checking":
+            continue
+        evidence = data.get("evidence") or {}
+        add(
+            f"  task {str(event.get('taskId'))[:8]} · {data.get('status')} · "
+            f"{str(evidence.get('previousHead'))[:8]} → {str(evidence.get('head'))[:8]} · "
+            f"任务提交 {str(evidence.get('taskCommit'))[:8]}"
+        )
+    add("")
+
+    add("## 协作分支")
+    add(f"HEAD {run['integrationHead'][:8]}")
+    for name, item in run["files"].items():
+        add(f"  {name} · {item.get('text', item.get('error'))!r} · {'ok' if item['ok'] else 'FAIL'}")
+    add(f"原始仓库未被改动：{'是' if run['sourceRepoClean'] else '否'}")
+    add(f"最近提交：{run['integrationLog']}")
+    usage = {}
+    for event in run["usage"]:
+        key = short(event["agentId"])
+        usage[key] = usage.get(key, 0) + event["data"].get("total_tokens", 0)
+    add(f"令牌（本会话累计）：{', '.join(f'{k} {v}' for k, v in usage.items())}")
+    add("")
+
+    add("## 结论")
+    verdict = run["verdict"]
+    if verdict["ok"]:
+        add("通过：两个工作任务都完成并集成，依赖门成立，协作分支同时带两个文件。")
+    else:
+        add("未通过：" + "；".join(verdict["problems"]))
+    add("")
+    add("说明：这条链路里「提交」由宿主负责，worker 不再自己 `git add/commit`；模型的收尾由宿主兜底，")
+    add("每次续跑写进主控窗格与任务详情（宿主兜底一行），最后的未完成标记还会进共享记录。")
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "retry":
+        retry(load(sys.argv[2]))
+        return
     main_run = load(sys.argv[1])
     first = load(sys.argv[2])
     follow = load(sys.argv[3])

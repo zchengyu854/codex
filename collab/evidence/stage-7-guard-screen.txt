@@ -1,0 +1,34 @@
+›_ codex-collab  会话 6d5d6f0f…
+左侧主控 / 右侧三个工作终端
+┌ ▶ 1 主控 · agnes-3.0-flash [已完成] ────────────────────┐┌ 2 工作1 · agnes-3.0-flash [已完成] ───────────────────────────────────┐
+│https://<provider>/v1      / Chat Completions · 128000 字││https://<provider>/v1      / Chat Completions · 128000 字节预算        │
+│主控 › h.txt task completed. Reviewing its diff:         ││[产物] full result                                                     │
+│主控 › Diff only adds `h.txt` with `theta` — integrating:││[产物] file diff                                                       │
+│主控 › Both worker tasks are complete and integrated into││[任务] 已完成 Creating `g.txt` with the single word `eta`.Created      │
+│the collaboration branch.- g.txt (contains `eta`): commit││`g.txt` containing exactly `eta`. No existing files modified and no git│
+│`6005323c84a2a115044890e52cd0fea5d7cef55b`- h.txt        ││commands run.Done — `g.txt` is created with the single word `eta`, and │
+│(contains `theta`): commit                               ││the result has been published for review and integration.              │
+│`ddf321eb0db639d01f416854b773962fa63cd5d2`The h.txt task ││❯                                                                      │
+│only started after the g.txt task was integrated (its    │└───────────────────────────────────────────────────────────────────────┘
+│base commit matches the post-integration head), and both │┌ 3 工作2 · agnes-3.0-flash [已完成] ───────────────────────────────────┐
+│integrations report status `integrated`.                 ││https://<provider>/v1      / Chat Completions · 128000 字节预算        │
+│[产物] full result                                       ││[产物] file diff                                                       │
+│[任务] 已完成 Now creating the second worker task with a ││[任务] 已完成 Created `h.txt` containing exactly `theta`. No existing  │
+│dependency on the first:Both tasks created; now waiting  ││files modified; no git commands run.Done — `h.txt` created with the    │
+│on the g.txt task:Diff only adds `g.txt` with `eta` —    ││single word `theta`, and the result has been published for review and  │
+│integrating:g.txt task integrated. Now waiting on the    ││integration.                                                           │
+│h.txt task:h.txt task completed. Reviewing its diff:Diff ││❯                                                                      │
+│only adds `h.txt` with `theta` — integrating:Both worker │└───────────────────────────────────────────────────────────────────────┘
+│tasks are complete and integrated into the collaboration │┌ 4 工作3 · — [未配置] ─────────────────────────────────────────────────┐
+│branch.- g.txt (contains `eta`): commit                  ││— / —                                                                  │
+│`6005323c84a2a115044890e52cd0fea5d7cef55b`- h.txt        ││                                                                       │
+│(contains `theta`): commit                               ││                                                                       │
+│`ddf321eb0db639d01f416854b773962fa63cd5d2`The h.txt task ││                                                                       │
+│only started after the g.txt task was integrated (its    ││                                                                       │
+│base commit matches the post-integration head), and both ││                                                                       │
+│integrations report status `integrated`.                 ││                                                                       │
+│❯                                                        ││❯                                                                      │
+└─────────────────────────────────────────────────────────┘└───────────────────────────────────────────────────────────────────────┘
+[1 主控] 编码:关  Tab 焦点  F2 放大  F3 共享  Ctrl+A 配置  Ctrl+L 会话  Ctrl+K 密钥  Ctrl+R 刷新  Ctrl+C 停止  Ctrl+Q 退出
+Ctrl+T 自检  Ctrl+U 约束  Ctrl+O 结果  Ctrl+D 详情  Ctrl+F 编排  Ctrl+E 编码  Ctrl+G 审查集成  Ctrl+P 压缩  Ctrl+N 新建
+已连接后台（collab/target/debug/codex-collab-core /private/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/codex-collab-stage7-live

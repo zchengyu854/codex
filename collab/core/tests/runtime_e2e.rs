@@ -222,7 +222,7 @@ async fn coordinator_delegates_three_workers_across_both_protocols_and_integrate
             .set(agent_id, Secret::new(format!("key-{model}")).unwrap())
             .unwrap();
     }
-    let task=store.create_task(TaskRequest{session_id:sid.clone(),agent_id:main,goal:"Delegate three independent coding tasks, review their diffs and integrate after validation.".into(),acceptance:"all three worker files integrated".into(),dependencies:vec![],coding:false}).unwrap();
+    let task=store.create_task(TaskRequest{session_id:sid.clone(),agent_id:main,goal:"Delegate three independent coding tasks, review their diffs and integrate after validation.".into(),acceptance:"all three worker files integrated".into(),dependencies:vec![],coding:false,created_by:None}).unwrap();
     let mut updates = rt.updates.subscribe();
     let scheduler = rt.start();
     let completed = tokio::time::timeout(std::time::Duration::from_secs(120), async {

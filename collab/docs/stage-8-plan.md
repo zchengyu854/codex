@@ -1,7 +1,7 @@
 # 阶段 8：真实代码项目验收
 
 日期：2026-10-20（Asia/Shanghai）。
-状态：**8-1、8-2 已实现并通过本地验收；8-3 尚未进行真实模型验收**。协作场景使用真实 Codex 和本地模拟上游；取消使用 fixture App Server，重启使用持久化崩溃状态模拟。未调用真实服务商或 Keychain 凭证。
+状态：**8-1、8-2 已实现并通过本地验收；8-3 真实模型场景已准备，尚未运行**。协作场景使用真实 Codex 和本地模拟上游；取消使用 fixture App Server，重启使用持久化崩溃状态模拟。尚无阶段 8 的真实服务商结果。
 
 ## 阶段目标
 
@@ -97,5 +97,25 @@ bash collab/scripts/stage8_evidence.sh
 ## 8-3 真实模型验收（下一步）
 
 使用同一合成项目，由真实主控与 worker 自主产生变更，验证完整依赖协作以及冲突返工。mock 提供的 changes 不能替真实模型预写结果。保留本地测试作为确定性的验收标准，记录真实请求、用量、耗时、审批及服务商限制。
+
+脚本 `scripts/stage8_real.py` 已实现有界场景：`prepare` 在独立状态目录初始化合成项目并配置一主两 worker；操作者通过 TUI 的 `Ctrl+K` 将凭证写入 Keychain；`verify` 只派发一个主控任务，由模型创建三个代码任务、实现两个独立改动及双依赖报告，再创建两个同基线 `total.py` 候选，集成其中一个、观察另一个真实 Git 冲突、显式放弃并创建引用冲突 taskId 的返工任务。脚本默认最多创建 7 个本轮任务（含主控），超限会取消仍在运行的任务；运行超时也会取消活动任务并保存部分证据。
+
+最终验收不只检查模型的自述：脚本确认依赖任务开始时两个前置集成都已完成；从集成事件确认 conflict 和 pending 放弃记录；检查五个 worker 集成、一个冲突候选保留为 pending、返工目标引用该候选且返工已集成；同基线冲突候选中另一个已集成；复制最终集成工作区到临时目录，用夹具提供的可信测试替换模型可修改的测试后运行完整 unittest；确认源仓库干净。输出 `evidence/stage-8-real.json`，服务商 URL 脱敏，包含任务、状态时间线、审批、完成响应 usage、运行耗时、集成检查和 oracle 输出。
+
+运行步骤（真实请求会产生费用；`--approve` 会自动接受并记录 Agent 的任务命令审批）：
+
+```sh
+python3 collab/scripts/stage8_real.py prepare \
+  --core collab/target/debug/codex-collab-core \
+  --state /private/tmp/codex-collab-stage8-live \
+  --base-url https://<provider>/v1 --model <model>
+# 在输出的 TUI 命令中分别对主控和两个 worker 按 Ctrl+K 保存凭证，退出 TUI
+python3 collab/scripts/stage8_real.py verify \
+  --core collab/target/debug/codex-collab-core \
+  --state /private/tmp/codex-collab-stage8-live \
+  --json collab/evidence/stage-8-real.json --approve --timeout 1800 --max-tasks 7
+```
+
+`prepare` 仅接受新状态目录；已存在 `repo/.git` 时会拒绝重用，避免覆盖已有场景。真实执行前需对服务商端点、模型、发送的合成项目/提示、请求费用范围及自动命令审批另行明确授权。当前用户此前授权的单次请求属于阶段 7，不能作为阶段 8 请求授权。
 
 本轮未发起付费请求，未把本地 mock 结果标记为真实模型通过。真实运行范围与目标沿用开发计划中的授权要求；失败记录保留，环境错误与产品错误分别说明。

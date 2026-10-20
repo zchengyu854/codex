@@ -237,6 +237,17 @@ def poll_run(host, session, args, evidence):
                     "rerun with --approve or approve it in the TUI"
                 )
         tasks = host.call("task/list", {"sessionId": session})
+        max_tasks = getattr(args, "max_tasks", None)
+        prior_tasks = set(evidence.get("priorTaskIds", []))
+        if max_tasks and len([task for task in tasks if task["id"] not in prior_tasks]) > max_tasks:
+            evidence["taskLimitExceeded"] = max_tasks
+            for task in tasks:
+                if task["status"] in ACTIVE:
+                    print(f"task limit exceeded; cancelling {task['id'][:8]}")
+                    try:
+                        host.call("task/cancel", {"taskId": task["id"]})
+                    except HostError as error:
+                        print(f"cancel failed: {error}")
         for task in tasks:
             key = task["id"]
             state = (task["status"], task.get("integrationStatus"))

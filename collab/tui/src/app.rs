@@ -413,6 +413,12 @@ pub enum Action {
         pane: usize,
     },
     RefreshOutput,
+    /// Read `session/list` and open the picker.
+    OpenSessions,
+    /// Rebuild the client against another persisted session.
+    SwitchSession {
+        id: String,
+    },
 }
 
 /// Context compaction form: a summary plus the exact session revision it is based on.
@@ -429,6 +435,31 @@ pub struct CreateForm {
     pub requirement: String,
     /// Focused field: 0 repository, 1 validation, 2 requirement.
     pub field: usize,
+    pub note: String,
+}
+
+/// One `session/list` row in the session picker.
+pub struct SessionItem {
+    pub id: String,
+    pub repository: String,
+    pub branch: String,
+    pub base_commit: String,
+    /// Number of configured validation commands.
+    pub validations: usize,
+    /// `requirement` / `user_override` excerpts found in this session's log, newest last.
+    pub requirements: Vec<String>,
+    /// Whether the requirement scan came back; false while it is still in flight.
+    pub scanned: bool,
+    pub current: bool,
+}
+
+/// Session picker (`session/list`): switch between persisted sessions without restarting.
+///
+/// Switching re-reads the whole session (agents, tasks, events, approvals) and drops the previous
+/// one's view state, so panes, records and command history never mix across sessions.
+pub struct SessionList {
+    pub items: Vec<SessionItem>,
+    pub index: usize,
     pub note: String,
 }
 
@@ -560,6 +591,7 @@ pub struct App {
     pub publish: Option<PublishForm>,
     pub task: Option<TaskForm>,
     pub output: Option<OutputForm>,
+    pub sessions: Option<SessionList>,
     pub coding: bool,
 }
 
@@ -596,6 +628,7 @@ impl App {
             publish: None,
             task: None,
             output: None,
+            sessions: None,
             coding: false,
         }
     }
@@ -710,6 +743,7 @@ impl App {
             publish: None,
             task: None,
             output: None,
+            sessions: None,
             coding: false,
         }
     }
@@ -743,6 +777,10 @@ impl App {
         // Quit must work even while a modal owns the keyboard.
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('q') {
             self.confirm_quit = true;
+            return false;
+        }
+        if self.sessions.is_some() {
+            self.sessions_key(key);
             return false;
         }
         if self.output.is_some() {
@@ -806,6 +844,7 @@ impl App {
                 KeyCode::Char('g') if self.mode == Mode::Live => self.open_review(),
                 KeyCode::Char('p') if self.mode == Mode::Live => self.open_compact(),
                 KeyCode::Char('n') if self.mode == Mode::Live => self.open_create(),
+                KeyCode::Char('l') if self.mode == Mode::Live => self.open_sessions(),
                 KeyCode::Char('c') => self.stop(),
                 _ => {}
             }
@@ -990,6 +1029,71 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    /// Ask the client to read `session/list` and open the picker (live mode).
+    fn open_sessions(&mut self) {
+        self.outbox.push(Action::OpenSessions);
+        self.feedback = "正在读取会话列表…".into();
+    }
+
+    /// Keys while the session picker is open. Enter rebuilds the client against another session.
+    fn sessions_key(&mut self, key: KeyEvent) {
+        let Some(list) = self.sessions.as_mut() else {
+            return;
+        };
+        match key.code {
+            KeyCode::Up => list.index = list.index.saturating_sub(1),
+            KeyCode::Down if list.index + 1 < list.items.len() => list.index += 1,
+            KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.outbox.push(Action::OpenSessions);
+                self.feedback = "正在重新读取会话列表…".into();
+            }
+            KeyCode::Enter => {
+                let Some(item) = list.items.get(list.index) else {
+                    list.note = "没有可切换的会话；Ctrl+N 新建。".into();
+                    return;
+                };
+                let (id, current) = (item.id.clone(), item.current);
+                self.sessions = None;
+                if current {
+                    self.feedback = "已在该会话中。".into();
+                    return;
+                }
+                self.outbox.push(Action::SwitchSession { id: id.clone() });
+                self.feedback = format!("正在切换到会话 {}…", short_id(&id));
+            }
+            KeyCode::Esc => {
+                self.sessions = None;
+                self.feedback = "已关闭会话列表。".into();
+            }
+            _ => {}
+        }
+    }
+
+    /// Drop every per-session view before attaching to another session.
+    ///
+    /// Keeps global user choices (focus, zoom, shared panel, coding toggle) and replaces the panes
+    /// with empty placeholders, so a session with no agents cannot show the previous session's
+    /// panes, records or command history.
+    pub fn reset_session_view(&mut self) {
+        self.panes = [
+            Pane::placeholder("主控"),
+            Pane::placeholder("工作1"),
+            Pane::placeholder("工作2"),
+            Pane::placeholder("工作3"),
+        ];
+        self.shared_records.clear();
+        self.approvals.clear();
+        self.approval_index = 0;
+        self.output = None;
+        self.task = None;
+        self.review = None;
+        self.compact = None;
+        self.create = None;
+        self.agent = None;
+        self.publish = None;
+        self.credential = None;
     }
 
     /// Ask the client to open the task output view for the focused pane (live mode).
@@ -2679,5 +2783,125 @@ mod tests {
         app.paste("ignored");
         assert_eq!(app.task.as_ref().unwrap().goal.text, "第一行\nX第二行 tab");
         assert_eq!(app.task.as_ref().unwrap().acceptance, "", "no stray text");
+    }
+    fn session_picker() -> SessionList {
+        SessionList {
+            items: vec![
+                SessionItem {
+                    id: "aaaaaaaa-1111-4111-8111-111111111111".into(),
+                    repository: "/tmp/repo".into(),
+                    branch: "codex/collab-a".into(),
+                    base_commit: "89461ea68338".into(),
+                    validations: 2,
+                    requirements: vec!["[用户] 保留公开接口".into()],
+                    scanned: true,
+                    current: false,
+                },
+                SessionItem {
+                    id: "bbbbbbbb-2222-4222-8222-222222222222".into(),
+                    repository: "/tmp/repo".into(),
+                    branch: "codex/collab-b".into(),
+                    base_commit: "89461ea68338".into(),
+                    validations: 1,
+                    requirements: Vec::new(),
+                    scanned: true,
+                    current: true,
+                },
+            ],
+            index: 1,
+            note: String::new(),
+        }
+    }
+    #[test]
+    fn session_picker_switches_only_to_another_session() {
+        let mut app = App::live();
+        app.key(ctrl('l'));
+        assert!(matches!(app.outbox.as_slice(), [Action::OpenSessions]));
+        app.outbox.clear();
+        app.sessions = Some(session_picker());
+        app.key(press(KeyCode::Up));
+        assert_eq!(app.sessions.as_ref().unwrap().index, 0);
+        // The list stays open at the top edge.
+        app.key(press(KeyCode::Up));
+        assert_eq!(app.sessions.as_ref().unwrap().index, 0);
+        app.key(press(KeyCode::Enter));
+        assert!(app.sessions.is_none());
+        match app.outbox.as_slice() {
+            [Action::SwitchSession { id }] => {
+                assert_eq!(id, "aaaaaaaa-1111-4111-8111-111111111111");
+            }
+            other => panic!("unexpected outbox: {other:?}"),
+        }
+        // Entering the session that is already open closes the picker without a request.
+        app.outbox.clear();
+        app.sessions = Some(session_picker());
+        app.key(press(KeyCode::Enter));
+        assert!(app.sessions.is_none());
+        assert!(app.outbox.is_empty());
+        assert!(app.feedback.contains("已在该会话中"));
+    }
+    #[test]
+    fn session_picker_is_live_only_and_esc_closes() {
+        let mut app = App::demo();
+        app.key(ctrl('l'));
+        assert!(app.sessions.is_none(), "demo mode has no sessions to pick");
+        assert!(app.outbox.is_empty());
+        let mut app = App::live();
+        app.sessions = Some(session_picker());
+        app.key(press(KeyCode::Esc));
+        assert!(app.sessions.is_none());
+        assert!(app.feedback.contains("已关闭"));
+        // An empty list still answers Enter with a note instead of switching.
+        let mut app = App::live();
+        app.sessions = Some(SessionList {
+            items: Vec::new(),
+            index: 0,
+            note: String::new(),
+        });
+        app.key(press(KeyCode::Enter));
+        assert!(app.sessions.as_ref().unwrap().note.contains("Ctrl+N"));
+        assert!(app.outbox.is_empty());
+    }
+    #[test]
+    fn reset_session_view_drops_previous_session_data() {
+        let mut app = App::live();
+        app.shared_records.push(line("[用户] 旧会话约束", ACCENT));
+        app.approvals.push(ApprovalItem {
+            id: "a1".into(),
+            method: "m".into(),
+            agent_id: "c".into(),
+            task_id: "t".into(),
+            detail: "d".into(),
+        });
+        app.approval_index = 3;
+        app.panes[0].agent_id = Some("c".into());
+        app.panes[0].model = "planner-model".into();
+        app.panes[0].input.set("半截输入");
+        app.panes[0].history.push(line("旧记录", ACCENT));
+        app.focused = 2;
+        app.coding = true;
+        app.output = Some(OutputForm {
+            pane: 0,
+            task_id: "t".into(),
+            status: "已完成".into(),
+            result: "r".into(),
+            draft: String::new(),
+            body: String::new(),
+            artifacts: String::new(),
+            scroll: 0,
+            live: false,
+        });
+        app.reset_session_view();
+        assert!(app.shared_records.is_empty(), "shared records leaked over");
+        assert!(app.approvals.is_empty() && app.approval_index == 0);
+        assert!(app.output.is_none());
+        for pane in &app.panes {
+            assert!(pane.agent_id.is_none());
+            assert_eq!(pane.model, "—");
+            assert!(pane.history.is_empty());
+            assert!(pane.input.is_empty());
+        }
+        assert_eq!(app.focused, 2, "focus is a global choice");
+        assert!(app.coding, "the coding toggle is a global choice");
     }
 }

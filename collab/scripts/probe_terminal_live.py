@@ -303,6 +303,48 @@ try:
     os.write(master, b"\x13")  # Ctrl+S dispatches
     wait_for("任务已提交")
 
+    # Publish a requirement (the default kind) so the picker has a per-session summary to show.
+    output.clear()
+    os.write(master, b"\x15")  # Ctrl+U
+    wait_for("发布用户约束")
+    os.write(master, b"always keep tests green")
+    os.write(master, b"\r")
+    wait_for("已发布")
+
+    # Ctrl+N creates a second session on the same repository. It starts without agents, so the
+    # panes must be reset instead of showing the first session's data.
+    output.clear()
+    os.write(master, b"\x0e")  # Ctrl+N
+    wait_for("新建协作会话")
+    os.write(master, repo.encode())
+    os.write(master, b"\t")  # repository -> validation
+    os.write(master, b"/usr/bin/true")
+    os.write(master, b"\r")
+    wait_for("已创建会话", 15)
+    wait_for("尚未配置")
+
+    # Cross-session check: the new session shows no shared records at all.
+    os.write(master, b"\x1bOR")  # F3 shows the shared records panel
+    text = wait_for("暂无共享记录")
+    assert "keep" not in text, "the previous session's record leaked into the new one"
+
+    # Ctrl+L lists both sessions and starts on the current one; Up selects the seeded session.
+    output.clear()
+    os.write(master, b"\x0c")  # Ctrl+L
+    text = wait_for("会话列表")
+    assert "共 2 个会话" in text, f"the picker did not count both sessions:\n{text[-2000:]!r}"
+    # Up selects the seeded session (row order is creation order) and Enter switches to it. The
+    # selection is proven by what follows: the new session has no agents, so the seeded model can
+    # only reappear if the switch really happened.
+    os.write(master, b"\x1b[A")
+    os.write(master, b"\r")
+    wait_for(MODEL, 8)
+    text = wait_for("green")
+    assert "stable" in text, (
+        f"the earlier suggestion did not come back after switching:\n{text[-2000:]!r}"
+    )
+    os.write(master, b"\x1bOR")  # F3 hides the panel again
+    drain(0.3)
 
     os.write(master, b"\x11")  # Ctrl+Q
     drain(0.3)
@@ -325,7 +367,24 @@ try:
     assert task["acceptance"] == "tests pass and cancellation is covered", task
     assert task["coding"] is True, task
     assert task["dependencies"] == [], "no dependency was selected"
-    print("PASS: live session/agent rendering, coding toggle, review routing, compaction and create forms, agent configuration, connection probe, task output view, user constraint publication, task editor with newline/acceptance/coding, masked credential form, confirmed quit, terminal restoration")
+
+    # The picker created a real second session; the two sessions must not share agents or tasks,
+    # and the requirement published before the switch must still be in the first session's log.
+    sessions = with_host([("session/list", {})])[0]
+    ids = [session["id"] for session in sessions]
+    assert len(ids) == 2 and session_id in ids, sessions
+    other = next(session for session in ids if session != session_id)
+    assert with_host([("agent/list", {"sessionId": other})])[0] == [], "agents leaked"
+    assert with_host([("task/list", {"sessionId": other})])[0] == [], "tasks leaked"
+    events = with_host([("event/list", {"sessionId": other, "after": 0, "limit": 1000})])[0]
+    kinds = {event["kind"] for event in events}
+    assert not kinds & {"requirement", "user_override", "suggestion"}, events
+    events = with_host(
+        [("event/list", {"sessionId": session_id, "after": 0, "limit": 1000})]
+    )[0]
+    texts = [event["data"] for event in events if event["kind"] == "requirement"]
+    assert "always keep tests green" in texts, texts
+    print("PASS: live session/agent rendering, coding toggle, review routing, compaction and create forms, agent configuration, connection probe, task output view, user constraint publication, task editor with newline/acceptance/coding, second session creation and picker switch with no cross-session leakage, masked credential form, confirmed quit, terminal restoration")
 finally:
     if process.poll() is None:
         process.kill()

@@ -4,8 +4,8 @@
 //! `collab/update` notifications to the [`App`]. It never reads the database or model adapters.
 use crate::app::{
     ACCENT, Action, AgentForm, App, ApprovalItem, CompactForm, CreateForm, Dependency, GREEN,
-    MUTED, OutputForm, Pane, PublishForm, ReviewForm, TaskForm, TextBuf, WARN, line,
-    publish_kind_label,
+    MUTED, OutputForm, Pane, PublishForm, ReviewForm, SessionItem, SessionList, TaskForm, TextBuf,
+    WARN, line, publish_kind_label,
 };
 use crate::host::{Host, HostEvent};
 use ratatui::style::Color;
@@ -23,6 +23,10 @@ const PROBE_INTERVAL: Duration = Duration::from_millis(900);
 const PROBE_MAX_CHECKS: u32 = 100;
 /// How long to wait between `task/output` refreshes while the viewed task runs.
 const OUTPUT_INTERVAL: Duration = Duration::from_millis(800);
+/// Events read per session when building the picker's requirement summary (the host cap).
+const SESSION_SCAN: u64 = 1000;
+/// User constraints shown per session in the picker.
+const SESSION_REQUIREMENTS: usize = 3;
 
 /// An in-flight capability probe: `agent/testConnection` then `agent/connectionResult` checks.
 struct Probe {
@@ -49,6 +53,13 @@ pub struct Options {
 
 enum Pending {
     SessionList,
+    /// `session/list` read for the picker rather than for startup.
+    SessionCatalog,
+    /// Requirement scan for one picker row; the generation guards against a reopened list.
+    SessionEvents {
+        generation: u64,
+        index: usize,
+    },
     CreateSession,
     Agents,
     Tasks,
@@ -106,6 +117,10 @@ pub struct Client {
     probe: Option<Probe>,
     /// Earliest next refresh of an open task output view.
     output_poll: Option<Instant>,
+    /// Requirement excerpts per session, cached so reopening the picker does not rescan.
+    requirements: HashMap<String, Vec<String>>,
+    /// Incremented per picker open; a scan answer from an older list is ignored.
+    scan_generation: u64,
 }
 
 impl Client {
@@ -122,6 +137,8 @@ impl Client {
             compact_retry: None,
             probe: None,
             output_poll: None,
+            requirements: HashMap::new(),
+            scan_generation: 0,
         }
     }
 
@@ -134,10 +151,22 @@ impl Client {
         }
     }
 
+    /// Attach to a session and rebuild every per-session view.
+    ///
+    /// Requests still in flight belong to the session being left, so dropping the pending map makes
+    /// their late answers inert: a stale `task/output` or review reply can no longer reopen a view
+    /// that belongs to the previous session.
     fn attach(&mut self, app: &mut App, session: String) {
+        self.pending.clear();
+        app.reset_session_view();
         app.session_label = format!("会话 {}", short(&session));
         self.after = 0;
         self.task_of_agent.clear();
+        self.task_status.clear();
+        self.artifacts.clear();
+        self.compact_retry = None;
+        self.probe = None;
+        self.output_poll = None;
         self.session = Some(session);
         self.load_agents(app);
     }
@@ -275,10 +304,70 @@ impl Client {
                     self.create_session(app);
                     return;
                 }
+                let count = sessions.len();
                 match sessions[0]["id"].as_str() {
-                    Some(id) => self.attach(app, id.to_owned()),
+                    Some(id) => {
+                        self.attach(app, id.to_owned());
+                        if count > 1 {
+                            app.feedback =
+                                format!("发现 {count} 个会话，已连接最早的；Ctrl+L 可切换。");
+                        }
+                    }
                     None => app.feedback = "会话列表格式异常，缺少 id。".into(),
                 }
+            }
+            Pending::SessionCatalog => {
+                let mut list = SessionList {
+                    items: session_items(&value, self.session.as_deref()),
+                    index: 0,
+                    note: String::new(),
+                };
+                list.index = list.items.iter().position(|item| item.current).unwrap_or(0);
+                for item in &mut list.items {
+                    if let Some(cached) = self.requirements.get(&item.id) {
+                        item.requirements = cached.clone();
+                        item.scanned = true;
+                    }
+                }
+                let missing = list
+                    .items
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, item)| !item.scanned)
+                    .map(|(index, item)| (index, item.id.clone()))
+                    .collect::<Vec<_>>();
+                self.scan_generation = self.scan_generation.wrapping_add(1);
+                let generation = self.scan_generation;
+                let count = list.items.len();
+                app.sessions = Some(list);
+                app.feedback = if count == 0 {
+                    "尚无会话；Ctrl+N 新建。".into()
+                } else {
+                    format!("共 {count} 个会话：↑/↓ 选择，Enter 切换。")
+                };
+                for (index, id) in missing {
+                    self.request(
+                        app,
+                        "event/list",
+                        json!({"sessionId": id, "after": 0, "limit": SESSION_SCAN}),
+                        Pending::SessionEvents { generation, index },
+                    );
+                }
+            }
+            Pending::SessionEvents { generation, index } => {
+                if generation != self.scan_generation {
+                    return;
+                }
+                let Some(list) = app.sessions.as_mut() else {
+                    return;
+                };
+                let Some(item) = list.items.get_mut(index) else {
+                    return;
+                };
+                item.requirements = requirement_lines(&value);
+                item.scanned = true;
+                self.requirements
+                    .insert(item.id.clone(), item.requirements.clone());
             }
             Pending::CreateSession => match value["id"].as_str() {
                 Some(id) => {
@@ -375,6 +464,10 @@ impl Client {
                     "已发布 {} · 版本 {revision}，正在写入共享记录…",
                     publish_kind_label(kind)
                 );
+                // The picker caches requirements per session; this session's summary is now stale.
+                if let Some(session) = self.session.clone() {
+                    self.requirements.remove(&session);
+                }
                 self.refresh_lists(app);
             }
             Pending::Compose { pane } => {
@@ -558,7 +651,12 @@ impl Client {
                 }
             }
             "requirement" | "user_override" => {
-                push_shared(app, format!("[用户] {}", event_text(data)), ACCENT);
+                // A blank record can only come from a client that sent an empty requirement; do
+                // not turn it into an empty line in the shared log.
+                let text = event_text(data);
+                if !text.trim().is_empty() {
+                    push_shared(app, format!("[用户] {text}"), ACCENT);
+                }
             }
             "decision" => {
                 push_shared(app, format!("[决策] {}", event_text(data)), ACCENT);
@@ -610,7 +708,7 @@ impl Client {
         match action {
             Action::Send { pane, text, coding } => {
                 // The plain Enter dispatch keeps its stage-5 shape exactly: no acceptance text and
-                // no dependencies. Ctrl+I is the editor that fills them.
+                // no dependencies. Ctrl+F is the editor that fills them.
                 self.dispatch_task(app, pane, text, String::new(), Vec::new(), coding);
             }
             Action::CreateTask {
@@ -745,6 +843,22 @@ impl Client {
                     Pending::Compacted { summary },
                 );
             }
+            Action::OpenSessions => {
+                if self.session.is_none() {
+                    app.feedback = "尚未连接会话，无法切换。".into();
+                    return;
+                }
+                app.feedback = "正在读取会话列表…".into();
+                self.request(app, "session/list", json!({}), Pending::SessionCatalog);
+            }
+            Action::SwitchSession { id } => {
+                if self.session.as_deref() == Some(id.as_str()) {
+                    app.feedback = "已在该会话中。".into();
+                    return;
+                }
+                app.feedback = format!("已切换到会话 {}。", short(&id));
+                self.attach(app, id);
+            }
             Action::OpenCreate => {
                 let note = if self.options.repository.is_some() {
                     "已按启动参数预填，可修改。Tab 切换字段，Enter 创建。".into()
@@ -860,7 +974,7 @@ impl Client {
                 self.request(
                     app,
                     "session/create",
-                    json!({"repository": repository, "validation": validation, "requirement": requirement}),
+                    create_session_params(&repository, &validation, &requirement),
                     Pending::CreateSession,
                 );
             }
@@ -1268,6 +1382,61 @@ fn build_review(
     })
 }
 
+/// Build `session/create` params; an empty requirement is omitted entirely.
+///
+/// The host records whatever requirement it receives, and a blank record would show up as an empty
+/// user constraint in the picker and the shared log of every later attach.
+fn create_session_params(repository: &str, validation: &[Vec<String>], requirement: &str) -> Value {
+    let mut params = json!({"repository": repository, "validation": validation});
+    if !requirement.is_empty() {
+        params["requirement"] = json!(requirement);
+    }
+    params
+}
+
+/// Build the picker rows from a `session/list` payload; unknown fields degrade to placeholders.
+fn session_items(value: &Value, current: Option<&str>) -> Vec<SessionItem> {
+    value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|session| {
+            let id = session["id"].as_str()?.to_owned();
+            Some(SessionItem {
+                current: current == Some(id.as_str()),
+                repository: clip(session["repository"].as_str().unwrap_or("—"), 72),
+                branch: clip(session["branch"].as_str().unwrap_or("—"), 72),
+                base_commit: clip(session["baseCommit"].as_str().unwrap_or("—"), 12),
+                validations: session["validation"].as_array().map_or(0, Vec::len),
+                requirements: Vec::new(),
+                scanned: false,
+                id,
+            })
+        })
+        .collect()
+}
+
+/// Requirement and user-override excerpts from an `event/list` payload, newest few only.
+fn requirement_lines(value: &Value) -> Vec<String> {
+    let mut lines = value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|event| {
+            matches!(
+                event["kind"].as_str(),
+                Some("requirement" | "user_override")
+            )
+        })
+        .map(|event| event_text(&event["data"]))
+        .filter(|text| !text.trim().is_empty())
+        .map(|text| format!("[用户] {}", clip(&text, 80)))
+        .collect::<Vec<_>>();
+    let excess = lines.len().saturating_sub(SESSION_REQUIREMENTS);
+    lines.drain(..excess);
+    lines
+}
+
 fn short(id: &str) -> String {
     let mut end = id.len().min(8);
     while !id.is_char_boundary(end) {
@@ -1445,6 +1614,64 @@ mod tests {
         assert_eq!(event_text(&json!({"text":"hi"})), "hi");
         assert_eq!(event_text(&json!({"summary":"sum"})), "sum");
         assert_eq!(event_text(&json!({"other":1})), "{\"other\":1}");
+    }
+
+    #[test]
+    fn session_items_mark_the_current_session_and_degrade_safely() {
+        let sessions = json!([
+            {
+                "id":"a","repository":"/tmp/repo","branch":"codex/collab-a",
+                "baseCommit":"89461ea6833832b0551ce24ee32205824d5c108d",
+                "validation":[["cargo","test"],["cargo","fmt"]]
+            },
+            {"id":"b"}
+        ]);
+        let items = session_items(&sessions, Some("b"));
+        assert_eq!(items.len(), 2);
+        assert!(!items[0].current && items[1].current);
+        assert_eq!(items[0].validations, 2);
+        assert_eq!(items[0].base_commit, "89461ea68338…");
+        assert_eq!(items[1].repository, "—");
+        assert_eq!(items[1].branch, "—");
+        assert_eq!(items[1].validations, 0);
+        assert!(items[1].requirements.is_empty() && !items[1].scanned);
+
+        // A row without an id cannot be switched to, so it is dropped instead of shown.
+        assert!(session_items(&json!([{"repository":"/x"}]), None).is_empty());
+        assert!(session_items(&json!(null), None).is_empty());
+
+        // Long paths are clipped on a character boundary.
+        let long = json!([{"id":"c","repository":"中".repeat(100)}]);
+        let items = session_items(&long, None);
+        assert!(items[0].repository.ends_with('…'));
+        assert!(items[0].repository.len() < 300);
+    }
+
+    #[test]
+    fn create_session_params_omit_an_empty_requirement() {
+        let params = create_session_params("/repo", &[vec!["/usr/bin/true".into()]], "");
+        assert_eq!(params["repository"], "/repo");
+        assert!(params.get("requirement").is_none(), "{params}");
+        let params =
+            create_session_params("/repo", &[vec!["/usr/bin/true".into()]], "保留公开接口");
+        assert_eq!(params["requirement"], "保留公开接口");
+    }
+
+    #[test]
+    fn requirement_lines_keep_only_the_newest_user_constraints() {
+        let events = json!([
+            {"kind":"public_message","data":{"text":"hi"}},
+            {"kind":"requirement","data":{"text":"第一条需求"}},
+            {"kind":"suggestion","data":{"text":"建议不算约束"}},
+            {"kind":"user_override","data":{"text":"第二条覆盖"}},
+            {"kind":"requirement","data":{"text":"第三条需求"}},
+            {"kind":"requirement","data":{"text":"第四条需求"}}
+        ]);
+        let lines = requirement_lines(&events);
+        assert_eq!(lines.len(), SESSION_REQUIREMENTS);
+        assert!(lines[0].contains("第二条") && lines[2].contains("第四条"));
+        assert!(lines.iter().all(|line| line.starts_with("[用户] ")));
+        assert!(requirement_lines(&json!(null)).is_empty());
     }
 
     #[test]

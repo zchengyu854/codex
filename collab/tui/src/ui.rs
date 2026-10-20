@@ -90,7 +90,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         Paragraph::new(vec![
             Line::styled(
                 format!(
-                    "[{} {}] 编码:{}  Tab 焦点  F2 放大  F3 共享  Ctrl+A 配置  Ctrl+R 刷新  Ctrl+C 停止  Ctrl+Q 退出",
+                    "[{} {}] 编码:{}  Tab 焦点  F2 放大  F3 共享  Ctrl+A 配置  Ctrl+L 会话  Ctrl+R 刷新  Ctrl+C 停止  Ctrl+Q 退出",
                     app.focused + 1,
                     focused.role,
                     if app.coding { "开" } else { "关" }
@@ -247,6 +247,84 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
                 .block(
                     Block::bordered()
                         .title(" 配置 Agent · 端点、协议与上下文预算 ")
+                        .border_style(Style::default().fg(ACCENT)),
+                ),
+            popup,
+        );
+    }
+    if let Some(list) = &app.sessions {
+        let mut lines = Vec::new();
+        const WINDOW: usize = 8;
+        let start = list
+            .index
+            .saturating_sub(WINDOW / 2)
+            .min(list.items.len().saturating_sub(WINDOW));
+        for (offset, item) in list.items[start..].iter().take(WINDOW).enumerate() {
+            let row = start + offset;
+            let active = row == list.index;
+            lines.push(line(
+                format!(
+                    "{} {} {} · 验证 {} 条{}",
+                    if active { "▸" } else { " " },
+                    if item.current { "●" } else { "○" },
+                    short_id(&item.id),
+                    item.validations,
+                    if item.current { "  · 当前" } else { "" }
+                ),
+                if active { ACCENT } else { FOREGROUND },
+            ));
+        }
+        if list.items.is_empty() {
+            lines.push(line("（尚无会话；Ctrl+N 新建）", MUTED));
+        }
+        if list.items.len() > WINDOW {
+            lines.push(line(
+                format!("…（共 {} 个会话，↑↓ 移动）", list.items.len()),
+                MUTED,
+            ));
+        }
+        if let Some(item) = list.items.get(list.index) {
+            lines.push(line(String::new(), FOREGROUND));
+            lines.push(line(format!("仓库 {}", item.repository), MUTED));
+            lines.push(line(format!("分支 {}", item.branch), MUTED));
+            lines.push(line(format!("基线 {}", item.base_commit), MUTED));
+            if item.requirements.is_empty() {
+                lines.push(line(
+                    if item.scanned {
+                        "用户约束：无"
+                    } else {
+                        "用户约束：读取中…"
+                    },
+                    MUTED,
+                ));
+            } else {
+                lines.push(line(
+                    format!("用户约束 {} 条：", item.requirements.len()),
+                    MUTED,
+                ));
+                for text in &item.requirements {
+                    lines.push(line(text.clone(), ACCENT));
+                }
+            }
+        }
+        if !list.note.is_empty() {
+            lines.push(line(list.note.clone(), WARN));
+        }
+        lines.push(line(
+            "↑/↓ 选择 · Enter 切换 · Ctrl+R 重新读取 · Esc 关闭",
+            GREEN,
+        ));
+        // Every picker line is short enough not to wrap, so size the popup to its content.
+        let height = (lines.len() as u16 + 2).clamp(3, 26);
+        let popup = centered(full, full.width.min(110), height);
+        frame.render_widget(Clear, popup);
+        frame.render_widget(
+            Paragraph::new(lines)
+                .style(Style::default().bg(BACKGROUND).fg(FOREGROUND))
+                .wrap(Wrap { trim: false })
+                .block(
+                    Block::bordered()
+                        .title(" 会话列表 · session/list 切换会话 ")
                         .border_style(Style::default().fg(ACCENT)),
                 ),
             popup,
@@ -809,6 +887,84 @@ mod tests {
         assert!(text.contains("等待审查结论"));
     }
     #[test]
+    fn session_picker_renders_current_marker_and_requirements() {
+        use crate::app::{SessionItem, SessionList};
+        let mut app = App::live();
+        app.sessions = Some(SessionList {
+            items: vec![
+                SessionItem {
+                    id: "aaaaaaaa-1111-4111-8111-111111111111".into(),
+                    repository: "/tmp/repo".into(),
+                    branch: "codex/collab-a".into(),
+                    base_commit: "89461ea68338…".into(),
+                    validations: 2,
+                    requirements: vec!["[用户] 保留公开接口".into()],
+                    scanned: true,
+                    current: false,
+                },
+                SessionItem {
+                    id: "bbbbbbbb-2222-4222-8222-222222222222".into(),
+                    repository: "—".into(),
+                    branch: "—".into(),
+                    base_commit: "—".into(),
+                    validations: 0,
+                    requirements: Vec::new(),
+                    scanned: false,
+                    current: true,
+                },
+            ],
+            index: 1,
+            note: String::new(),
+        });
+        let text = screen(&mut app, 140, 42);
+        assert!(text.contains("会话列表"));
+        assert!(text.contains("aaaaaaaa…") && text.contains("bbbbbbbb…"));
+        assert!(text.contains("当前"));
+        assert!(text.contains("用户约束：读取中"));
+        assert!(
+            text.contains("分支 —"),
+            "the highlighted row shows its own detail"
+        );
+        // Moving up shows the other session's branch and constraint summary.
+        app.sessions.as_mut().unwrap().index = 0;
+        let text = screen(&mut app, 140, 42);
+        assert!(text.contains("codex/collab-a"));
+        assert!(text.contains("用户约束 1 条"));
+        assert!(text.contains("保留公开接口"));
+        // Empty and oversized lists stay renderable.
+        app.sessions.as_mut().unwrap().items.clear();
+        app.sessions.as_mut().unwrap().index = 0;
+        let text = screen(&mut app, 140, 42);
+        assert!(text.contains("尚无会话"));
+    }
+
+    #[test]
+    fn empty_and_oversized_session_picker_renders_without_panicking() {
+        use crate::app::{SessionItem, SessionList};
+        let mut app = App::live();
+        let items = (0..40)
+            .map(|index| SessionItem {
+                id: format!("{index:08}-1111-4111-8111-111111111111"),
+                repository: format!("/tmp/仓库{index}"),
+                branch: format!("codex/collab-{index}"),
+                base_commit: "89461ea68338…".into(),
+                validations: index,
+                requirements: Vec::new(),
+                scanned: true,
+                current: index == 12,
+            })
+            .collect();
+        app.sessions = Some(SessionList {
+            items,
+            index: 39,
+            note: "共 40 个会话".into(),
+        });
+        let text = screen(&mut app, 90, 30);
+        assert!(text.contains("共 40 个会话"));
+        assert!(text.contains("第 40") || text.contains("codex/collab-39"));
+    }
+
+    #[test]
     fn compact_and_create_modals_render() {
         use crate::app::{CompactForm, CreateForm};
         let mut app = App::live();
@@ -1045,6 +1201,7 @@ mod tests {
             "Ctrl+U 约束",
             "Ctrl+O 结果",
             "Ctrl+F 编排",
+            "Ctrl+L 会话",
             "Ctrl+G 审查集成",
             "Ctrl+C 停止",
             "Ctrl+Q 退出",

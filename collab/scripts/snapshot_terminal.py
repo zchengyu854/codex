@@ -273,8 +273,12 @@ class Screen:
         return "\n".join(lines)
 
 
-def seed_session(core, codex, state):
-    """Create a real session with one configured agent through the host's line protocol."""
+def seed_session(core, codex, state, extra=0):
+    """Create a real session with one configured agent through the host's line protocol.
+
+    `extra` adds further sessions on the same repository (each with a published user constraint),
+    so the session picker can be captured with several rows.
+    """
     work = tempfile.mkdtemp(prefix="codex-collab-snapshot-")
     repo = os.path.join(work, "repo")
     os.makedirs(repo)
@@ -304,11 +308,23 @@ def seed_session(core, codex, state):
                 return value["result"]
 
     session = call("session/create", {"repository": repo, "validation": [["/usr/bin/true"]]})
+    call("event/publish", {
+        "sessionId": session["id"], "kind": "requirement",
+        "data": "keep the public API stable",
+    })
     call("agent/configure", {
         "id": "11111111-2222-4333-8444-555555555555", "sessionId": session["id"],
         "role": "coordinator", "model": "planner-model",
         "baseUrl": "https://example.invalid/v1", "protocol": "responses", "contextBytes": 65536,
     })
+    for index in range(extra):
+        other = call("session/create", {
+            "repository": repo, "validation": [["/usr/bin/true"], ["/usr/bin/true"]],
+        })
+        call("event/publish", {
+            "sessionId": other["id"], "kind": "user_override",
+            "data": f"extension session {index + 2}: keep tests green",
+        })
     host.stdin.close()
     host.wait(timeout=10)
     return session["id"]
@@ -344,6 +360,7 @@ def main():
     parser.add_argument("--rows", type=int, default=45)
     parser.add_argument("--cols", type=int, default=140)
     parser.add_argument("--wait", type=float, default=1.6, help="seconds to let the first frame settle")
+    parser.add_argument("--sessions", type=int, default=1, help="live mode: how many sessions to seed")
     parser.add_argument("--keys", default="", help="'|'-separated key script applied after the first frame")
     parser.add_argument("--keys-delay", type=float, default=0.45)
     args = parser.parse_args()
@@ -356,7 +373,7 @@ def main():
     if args.live:
         if not args.core:
             parser.error("--live needs --core")
-        session = seed_session(args.core, args.codex, state)
+        session = seed_session(args.core, args.codex, state, extra=max(0, args.sessions - 1))
         command += ["--state", state, "--host", args.core, "--session", session, "--codex", args.codex]
     else:
         command += ["--demo"]

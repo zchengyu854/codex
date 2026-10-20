@@ -36,10 +36,12 @@ try:
     drain(0.6)
     for name in (b'planner-model', b'code-model', b'review-model', b'fast-model'):
         assert name in output, name
-    # Ctrl+F is live-only; in demo it must be a no-op and must not steal focus from the input line.
-    os.write(master, b'\x06')
+    # Ctrl+F and Ctrl+L are live-only; in demo they must be no-ops and must not steal focus from
+    # the input line.
+    os.write(master, b'\x06\x0c')
     drain()
     assert '编排任务'.encode() not in output, 'demo mode opened the live-only task editor'
+    assert '会话列表'.encode() not in output, 'demo mode opened the live-only session picker'
     os.write(master, b'\t\x1b[200~smoke-message\x1b[201~')
     drain()
     assert b'smoke-message' in output, 'the bracketed paste did not reach the input line'
@@ -61,7 +63,7 @@ try:
     assert termios.tcgetattr(slave) == before, 'terminal input modes were not restored'
     assert b'\x1b[?1049l' in output, 'alternate screen was not restored'
     assert b'\x1b[?2004l' in output, 'bracketed paste was not disabled'
-    print('PASS: four panes, live-only key stays inert, paste/send, caret editing, stop, confirmed quit, terminal restoration, non-TTY rejection')
+    print('PASS: four panes, live-only keys stay inert, paste/send, caret editing, stop, confirmed quit, terminal restoration, non-TTY rejection')
 finally:
     if process.poll() is None:
         process.kill()

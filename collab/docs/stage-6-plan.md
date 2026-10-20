@@ -1,7 +1,7 @@
 # 阶段 6 设计：从「方法可达」到「参数可达与真实验证」
 
-日期：2026-10-19（Asia/Shanghai）。
-状态：**6-1 已实现并验证**；6-2 → 6-3 → 6-4 按序推进，6-5 不纳入本阶段。
+日期：2026-10-19（Asia/Shanghai），实施记录更新于 2026-10-20。
+状态：**6-1、6-2 已实现并验证**；6-3 → 6-4 按序推进，6-5 不纳入本阶段。
 
 ## 出发点
 
@@ -83,6 +83,27 @@
 - 会话列表对空会话、缺字段、超长子路径均安全渲染。
 
 **证据**：切换重载单测（含串数据反例）、会话列表空/满渲染快照、live pty 探针（`Ctrl+N` 建第二个会话 → 列表切换 → 断言窗格与记录切换）。
+
+**实现记录（2026-10-20）**
+
+已交付，宿主协议未改动（只修正了客户端一处入参）：`session/list` 本来就能返回全部持久化会话，缺的是终端入口与切换语义。
+
+| 能力 | 实现位置 | 说明 |
+| --- | --- | --- |
+| 会话列表 `Ctrl+L` | `app.rs::open_sessions` / `sessions_key` | 仅实时模式；打开时发 `session/list`，光标默认落在当前会话 |
+| 列表内容 | `ui.rs` 会话模态 + `client.rs::session_items` | 每行：短 id、验证命令条数、当前标记；详情：仓库、分支、基线提交、用户约束摘要。缺字段退化为 `—`，长路径按字符边界截断 |
+| 每会话用户约束 | `client.rs::requirement_lines` | 打开列表时为每个会话读一次 `event/list`（after=0，最多 1000 条），取最近 3 条 `requirement`/`user_override`；结果按会话缓存，发布新约束后只失效当前会话。行内也可滚动 8 行窗口 |
+| 切换 | `Action::SwitchSession` → `Client::attach` | 与启动、`session/create` 共用同一条重载路径 |
+| 切换时的清理 | `Client::attach` + `App::reset_session_view` | 清空 pending（旧会话的迟到响应直接失效，不会弹出旧 `task/output`）、`after`、任务映射、产物、探针与轮询；窗格、共享记录、审批、各模态、命令历史全部重置；焦点/放大/共享面板/编码开关属于全局选择，保留 |
+| 新建复用 | `Action::CreateSession` → `attach` | 创建后直接进入新会话；顺带修正：需求为空时不再发送 `requirement` 字段，避免宿主落一条空约束、在列表里显示成「用户约束 1 条」 |
+| 键位 | 第一行底部提示 | `Ctrl+L 会话` 与 `Ctrl+A 配置` 同属全局键；两行提示在 132 列内不被截断（有回归断言） |
+
+「不串数据」的做法是把清理放在 `attach` 里而不是调用点，因此启动、切换、新建三条入口不可能漏掉某一步。`App::reset_session_view` 单独可测：`reset_session_view_drops_previous_session_data` 先灌入共享记录、审批、旧窗格与历史，再断言全部清空且全局选择仍在。
+
+验证：workspace 112 项全绿（core 32 / tui 80，另 2 项 opt-in 忽略项单跑通过）、clippy `-D warnings`、fmt `--check`、demo 与 live 探针通过。live 探针在真实宿主上建第二个会话 → 断言新会话窗格为空、共享记录无旧内容 → `Ctrl+L` 确认「共 2 个会话」→ `↑` 选回原会话并切换 → 断言模型名与两条用户记录重新出现；退出后再用宿主核对：两个会话互不共享 Agent/任务/用户事件，原会话的 requirement 仍在。demo 探针新增断言：`Ctrl+F`/`Ctrl+L` 在演示模式不生效。
+
+证据文件：`evidence/stage-6-tests.log`、`evidence/stage-6-sessions-screen.txt`（三个会话的列表画面，含当前标记与约束摘要）、`evidence/stage-6-summary.json`。
+
 
 ### 6-3 任务详情与结果增强
 

@@ -2,16 +2,17 @@
   "stage": "6",
   "title": "from method reachability to parameter reachability",
   "segments": [
-    "6-1 task orchestration: multi-line goal, acceptance criteria, dependencies and the coding switch from a terminal editor"
+    "6-1 task orchestration: multi-line goal, acceptance criteria, dependencies and the coding switch from a terminal editor",
+    "6-2 session management: a session picker, a shared reload path for switching and creation, and per-session requirement visibility"
   ],
-  "status": "6-1 complete; 6-2 session management, 6-3 task detail, 6-4 real API verification pending; 6-5 packaging is out of scope",
+  "status": "6-1 and 6-2 complete; 6-3 task detail and 6-4 real API verification pending; 6-5 packaging is out of scope",
   "date": "2026-10-20",
-  "scope": "stage 5 made all 19 host methods reachable, but the client always sent empty task parameters: `Action::Send` hard-coded acceptance=\"\" and dependencies=[]. 6-1 makes the parameters themselves reachable, so acceptance criteria and dependency gating (queued / blocked, coding tasks needing integrationStatus=integrated) actually reach the host",
+  "scope": "stage 5 made all 19 host methods reachable, but the client always sent empty task parameters, could only bind a session at startup, and had never been verified against a real provider. 6-1 makes the task parameters reachable (acceptance criteria and dependency gating), 6-2 makes every persisted session reachable and switchable without restarting",
   "contract_coverage": {
     "core_methods_implemented": 19,
     "tui_methods": 19,
     "newly_wired_methods": [],
-    "note": "no new method; `task/create` now carries its full parameter set instead of constants"
+    "note": "no new method in 6-1/6-2: `task/create` now carries its full parameter set instead of constants, and `session/list` gained a picker instead of being a startup-only call"
   },
   "task_editor": {
     "key": "Ctrl+F",
@@ -28,14 +29,29 @@
     "validation": "goal non-empty and within the limit; acceptance non-empty and within the limit; dependency ids are a subset of the rendered candidates; the host stays authoritative and its errors are echoed verbatim with the form still open",
     "blocked_events": "the client handles task_blocked and appends `[依赖] 任务已阻塞：<host reason>` to the pane in the warning colour"
   },
-  "footer": "hints moved to two lines: Ctrl+R 刷新 / Ctrl+C 停止 now sit on the first line and Ctrl+F 编排 joins the task line; both lines are asserted to fit 132 columns",
+  "session_picker": {
+    "key": "Ctrl+L",
+    "scope": "live mode only; demo mode keeps the key inert and the pty probe asserts it",
+    "rows": "short id, validation-command count and a current marker; the picker keeps an 8-row window around the highlight and shows the total when there are more sessions",
+    "detail": "repository, branch, base commit and the user-constraint summary of the highlighted session; missing fields render as `—`, and long paths are clipped on a char boundary",
+    "requirements": "opening the picker reads event/list (after=0, limit=1000) once per session and keeps the newest 3 requirement/user_override records; results are cached per session, and publishing a new constraint invalidates only the current session's cache. Empty records are ignored",
+    "keys": "Up/Down move, Enter switches (or closes with a note when it is already the current session), Ctrl+R re-reads, Esc closes"
+  },
+  "session_switch": {
+    "path": "Action::SwitchSession, startup auto-attach and Ctrl+N creation all call Client::attach, so no entry point can skip a reset step",
+    "reset": "attach drops the pending-request map (late answers from the old session become inert and cannot reopen an old task/output view), clears after/task maps/artifacts/probe/output poll, and calls App::reset_session_view, which replaces the panes with empty placeholders and clears shared records, approvals and every per-session modal",
+    "kept": "focus, zoom, shared-panel visibility and the coding toggle are global user choices and survive a switch",
+    "reload": "attach then runs agent/list -> task/list + event/list(after=0) + approval/list, the same catch-up path used everywhere else",
+    "empty_requirement_fix": "Ctrl+N used to send `requirement: \"\"`; the host records whatever it receives, so every new session gained a blank user constraint. The client now omits the field when it is empty (`create_session_params`)"
+  },
+  "footer": "hints moved to two lines: the global line carries Ctrl+L 会话 next to Ctrl+A 配置, and Ctrl+F 编排 sits on the task line; a 132-column render test asserts every hint is unabridged",
   "suite": {
-    "passed": 104,
+    "passed": 112,
     "failed": 0,
     "ignored": 2,
     "groups": {
       "core": 32,
-      "tui": 72
+      "tui": 80
     },
     "ignored_reason": "core runtime_e2e needs installed Codex; tui real-host smoke needs a built codex-collab-core",
     "new_tests": [
@@ -49,22 +65,30 @@
       "task_form_labels_progress_and_refuses_unusable_dependencies",
       "task_form_starts_from_the_coding_toggle_and_empty_text",
       "task_modal_renders_goal_acceptance_dependencies_and_the_caret",
-      "empty_and_oversized_task_modals_render_without_panicking"
+      "empty_and_oversized_task_modals_render_without_panicking",
+      "session_picker_switches_only_to_another_session",
+      "session_picker_is_live_only_and_esc_closes",
+      "reset_session_view_drops_previous_session_data",
+      "session_items_mark_the_current_session_and_degrade_safely",
+      "create_session_params_omit_an_empty_requirement",
+      "requirement_lines_keep_only_the_newest_user_constraints",
+      "session_picker_renders_current_marker_and_requirements",
+      "empty_and_oversized_session_picker_renders_without_panicking"
     ],
-    "regressions_guarded": "the existing panes/input/history tests were kept and only adapted to TextBuf, so Enter dispatch, paste, history and caret editing stay covered"
+    "regressions_guarded": "the existing panes/input/history tests were kept and only adapted to TextBuf, so Enter dispatch, paste, history and caret editing stay covered; the picker's Ctrl+L is added to the footer regression list"
   },
   "opt_in": {
-    "tui_include_ignored_passed": 73,
+    "tui_include_ignored_passed": 81,
     "real_host_smoke": "passed: the ignored test still drives a real codex-collab-core process through session/create, agent/configure, agent/list, task/list, approval/list, task/get, task/integrate, context/compact, agent/testConnection, agent/connectionResult, event/publish and task/output"
   },
   "format_check": "passed",
   "clippy_warnings_as_errors": "passed",
-  "pty_demo_smoke": "passed: four panes, the live-only Ctrl+F stays inert in demo mode and does not steal focus, paste/send, caret editing, stop, confirmed quit, terminal restoration, non-TTY rejection",
-  "pty_live_smoke": "passed: after seeding a session and agent, Ctrl+F opened the editor, typing rendered the label set and Ctrl+S hint, Enter inserted a newline rather than dispatching, Tab reached acceptance and the dependency list, space on the coding field toggled it, and Ctrl+S produced the queued-task feedback. After the TUI exited, a second host session read the task back and asserted goal == `implement retry with backoff\\nsecond line`, acceptance == `tests pass and cancellation is covered`, coding == true, dependencies == [] — the parameters really reached task/create",
+  "pty_demo_smoke": "passed: four panes, the live-only Ctrl+F and Ctrl+L stay inert in demo mode and do not steal focus, paste/send, caret editing, stop, confirmed quit, terminal restoration, non-TTY rejection",
+  "pty_live_smoke": "passed: after seeding a session and agent, Ctrl+F opened the task editor, Enter inserted a newline rather than dispatching, Tab reached acceptance and the dependency list, space toggled the coding field, and Ctrl+S queued the task; the task was read back from the host afterwards with goal, acceptance, coding and dependencies intact. Then Ctrl+U published a requirement, Ctrl+N created a second session on the same repository (the panes showed 未配置 and the shared panel showed no records), Ctrl+L listed `共 2 个会话` with the current marker, Up + Enter switched back, and the seeded model plus both user records reappeared. After the TUI exited, the host confirmed two sessions with disjoint agents, tasks and user events, and the requirement still in the first session's log",
   "pty_render_note": "ratatui emits only changed cells and the inline caret changes one cell per keystroke, so the live probe strips escape sequences and the `❙` marker before matching contiguous text, and drains until an expected needle appears instead of sleeping a fixed time",
-  "screen_snapshot": "evidence/stage-6-task-screen.txt is a live 40x132 frame with Ctrl+T queueing a probe task first (so the dependency row is real and shows 前置已失败), a two-line goal, an acceptance line and the caret still in the acceptance field",
+  "screen_snapshot": "evidence/stage-6-task-screen.txt is a live 40x132 frame of the task editor (a failed dependency row, a two-line goal, an acceptance line and the caret still in the acceptance field). evidence/stage-6-sessions-screen.txt is a live 30x132 frame of the picker over three real sessions on one repository, showing the current marker, per-row validation counts and the requirement summary",
   "real_api_tested": false,
-  "real_api_blocker": "6-4 needs the provider, endpoint, model, protocol, whether spend is allowed, and who writes the credential through Ctrl+K; until then the connection probe keeps failing without a credential, which is itself visible in the snapshot's failed task row",
-  "evidence_script": "scripts/stage6_evidence.sh replays build -> workspace tests -> opt-in tests -> clippy -> fmt -> both pty probes -> the task-editor snapshot, and rewrites evidence/stage-6-tests.log",
+  "real_api_blocker": "6-4 needs the provider, endpoint, model, protocol, whether spend is allowed, and who writes the credential through Ctrl+K; until then the connection probe keeps failing without a credential, which is itself visible in the task-editor snapshot's failed task row",
+  "evidence_script": "scripts/stage6_evidence.sh replays build -> workspace tests -> opt-in tests -> clippy -> fmt -> both pty probes -> both snapshots, and rewrites evidence/stage-6-tests.log",
   "log": "evidence/stage-6-tests.log"
 }

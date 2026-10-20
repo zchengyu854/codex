@@ -1,7 +1,7 @@
 # 阶段 6 设计：从「方法可达」到「参数可达与真实验证」
 
 日期：2026-10-19（Asia/Shanghai）。
-状态：**设计待确认**，未开工。按项目惯例，确认范围与顺序后再逐段实现。
+状态：**6-1 已实现并验证**；6-2 → 6-3 → 6-4 按序推进，6-5 不纳入本阶段。
 
 ## 出发点
 
@@ -23,7 +23,8 @@
 
 **范围**
 
-- 新增任务编辑器（默认 `Ctrl+I`「任务编排」；`Enter` 的快速派发路径保留，行为不变）。编辑器字段：多行目标、验收标准、依赖选择、编码开关。
+- 新增任务编辑器（`Ctrl+F`「任务编排」；`Enter` 的快速派发路径保留，行为不变）。编辑器字段：多行目标、验收标准、依赖选择、编码开关。
+- 按键说明：原计划的 `Ctrl+I` 不可用——终端里它与 `Tab` 同为 `0x09`，无法区分；改用 `Ctrl+F`，与其余模态的 `Ctrl+字母` 惯例一致。
 - 依赖列表来自当前会话 `task/list`，只列出可选任务（自身、已完成且已集成的编码任务、运行中的不做默认勾选），并显示每个候选的 `status`/`integrationStatus`。
 - 派发参数补齐：`acceptance`、`dependencies`；空验收在客户端给出提示（宿主允许为空，但这是常见误操作）。
 - 窗格与任务行显示依赖与阻塞原因：`blocked` 时标注前置任务，`queued` 时标注"等待轮转"。
@@ -42,6 +43,28 @@
 - 快速派发（`Enter`）行为与本阶段之前逐字节一致（回归断言）。
 
 **证据**：表单字段映射与校验的单测、依赖筛选单测、`blocked` 渲染快照、live pty 探针（建两个任务 → 第二个带依赖 → 断言状态与提示）。
+
+**实现记录（2026-10-20）**
+
+已交付，全部落在终端客户端，宿主协议未改动：
+
+| 能力 | 实现位置 | 说明 |
+| --- | --- | --- |
+| 共享光标缓冲 `TextBuf { text, cursor }` | `tui/src/app.rs` | 输入行、目标、验收共用一份光标算术；`Pane.input` 由 `String` 改为 `TextBuf`，兼容 `PartialEq<&str>` |
+| `Ctrl+F` 任务编辑器 | `app.rs::open_task` / `task_key` | 需已配置窗格；打开时向宿主发 `task/list` 拉候选依赖 |
+| 四字段编排 | `TaskForm { goal, acceptance, dependencies, index, coding, field, note }` | `Tab`/`BackTab` 循环 0 目标 → 1 验收 → 2 依赖 → 3 编码；`Esc` 取消 |
+| 多行文本 | `task_edit` + `push_caret_field` | 编辑器内 `Enter` 插入换行（目标 ≤64000B、验收 ≤16000B）；`Space` 只是正文 |
+| 依赖选择 | `task_toggle_dependency` / `push_dependencies` | 最多 8 项；`failed`/`cancelled`/`interrupted`/`blocked` 的候选不可勾选并提示「勾选后新任务会直接阻塞」；编码任务完成但未集成标「等待集成」 |
+| 派发 | `submit_task` → `Action::CreateTask` → `client.rs::dispatch_task` | `acceptance` 必填（空则留表单并提示走 `Enter` 快速派发）；`Action::Send` 与 `Action::CreateTask` 共用同一线上形状 |
+| 阻塞事件 | `client.rs` `task_blocked` | 窗格追加 `[依赖] 任务已阻塞：<宿主原因>`（`WARN` 色） |
+| 键位与画面 | `ui.rs` 模态 + 两行底部提示 | 依赖窗口固定 8 行；光标用内联 `❙` 标记（不改终端光标），越界时夹取到字符边界 |
+
+与设计的差异只有一处：打开键从 `Ctrl+I` 改为 `Ctrl+F`——`Ctrl+I` 在终端里就是 `0x09`，与 `Tab` 不可区分，无法作为独立绑定；`Ctrl+S` 提交保持原样（raw 模式已关闭 `IXON`）。`Enter` 快速派发路径逐字节未变，由 `task_editor_enter_inserts_newlines_and_space_stays_text` 与既有派发断言共同守住。
+
+验证：workspace 104 项全绿（core 32 / tui 72，另 2 项 opt-in 忽略项单跑通过）、clippy `-D warnings`、fmt `--check`、demo 与 live pty 探针均通过。live 探针在编辑器里输入两行目标、一行验收、打开编码开关后 `Ctrl+S`，退出 TUI 后重新用宿主读回该任务，断言 `goal` 含换行、`acceptance` 与 `coding` 逐字一致——参数确实到达了 `task/create`，而不只是"界面看起来能填"。
+
+证据文件：`evidence/stage-6-tests.log`（一条命令重放）、`evidence/stage-6-task-screen.txt`（编辑器画面，含依赖行与 `❙` 光标）、`evidence/stage-6-summary.json`；重放脚本 `scripts/stage6_evidence.sh`。
+
 
 ### 6-2 会话管理
 
@@ -108,8 +131,9 @@ release 构建与版本说明、安装步骤、README 快速开始、`--demo` �
 - 每段沿用既有节奏：`--locked` workspace 测试 + tui `--include-ignored` + clippy `-D warnings` + fmt `--check` + demo/live pty 探针 + 快照 → 更新文档与证据 → 提交并推送 `origin`（**不建 PR**）。
 - 新增 `collab/scripts/stage6_evidence.sh`，结构复制第 5 阶段脚本，一条命令重放全部验证并重写 `evidence/stage-6-tests.log`。
 
-## 待确认
+## 已确认的决策
 
-1. 是否按 **6-1 → 6-2 → 6-3 → 6-4** 推进，还是先把 6-4 做掉（需要你现在给凭证信息）？
-2. 6-5 是否纳入本阶段？
-3. 6-1 的按键：接受 `Ctrl+I` 打开任务编辑器、编辑器内 `Enter` 换行 / `Ctrl+S` 提交吗？
+1. 顺序按 **6-1 → 6-2 → 6-3 → 6-4** 推进；6-4 需要用户提供凭证信息才能产出 `real_api_tested: true` 的证据。
+2. 6-5 不纳入本阶段。
+3. 6-1 的按键：`Ctrl+I` 与 `Tab` 字节冲突，已改为 `Ctrl+F` 打开任务编辑器；编辑器内 `Enter` 换行 / `Ctrl+S` 提交不变。
+4. 编辑器要求验收标准非空；「无验收」保留给窗格内 `Enter` 的快速派发路径，避免空验收成为默认习惯。

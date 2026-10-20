@@ -1,0 +1,70 @@
+{
+  "stage": "6",
+  "title": "from method reachability to parameter reachability",
+  "segments": [
+    "6-1 task orchestration: multi-line goal, acceptance criteria, dependencies and the coding switch from a terminal editor"
+  ],
+  "status": "6-1 complete; 6-2 session management, 6-3 task detail, 6-4 real API verification pending; 6-5 packaging is out of scope",
+  "date": "2026-10-20",
+  "scope": "stage 5 made all 19 host methods reachable, but the client always sent empty task parameters: `Action::Send` hard-coded acceptance=\"\" and dependencies=[]. 6-1 makes the parameters themselves reachable, so acceptance criteria and dependency gating (queued / blocked, coding tasks needing integrationStatus=integrated) actually reach the host",
+  "contract_coverage": {
+    "core_methods_implemented": 19,
+    "tui_methods": 19,
+    "newly_wired_methods": [],
+    "note": "no new method; `task/create` now carries its full parameter set instead of constants"
+  },
+  "task_editor": {
+    "key": "Ctrl+F",
+    "key_correction": "Ctrl+I was the original plan but a terminal delivers it as 0x09, the same byte as Tab, so it can never be a distinct binding; Ctrl+F keeps the Ctrl+letter convention used by the other modals",
+    "fields": "0 goal, 1 acceptance, 2 dependencies, 3 coding; Tab/BackTab cycle, Esc cancels",
+    "multiline": "Enter inserts a newline in the goal and acceptance fields (goal <= 64000 bytes, acceptance <= 16000 bytes); Space is plain text there. Enter on a pane without the editor still dispatches immediately with empty acceptance and no dependencies, byte-for-byte as before",
+    "acceptance_required": "the editor rejects an empty acceptance and keeps the form open, pointing at the Enter quick-dispatch path; the host itself still allows empty acceptance",
+    "dependencies": "candidates come from the current session's task/list; at most 8 (MAX_DEPENDENCIES); failed/cancelled/interrupted/blocked tasks cannot be selected and say so (`勾选后新任务会直接阻塞`); a completed coding task that is not integrated is labelled 等待集成; the window shows 8 rows and scrolls with the cursor",
+    "coding": "the switch starts from the pane's current coding toggle and is sent as `coding` in the same request",
+    "caret": "text fields share TextBuf { text, cursor } with the pane input line, so caret arithmetic exists once; the editor marks the focused field with an inline `❙` instead of moving the terminal cursor, which keeps wrapped lines correct, and a stale cursor is clamped to a char boundary before rendering"
+  },
+  "dispatch": {
+    "helper": "client.rs::dispatch_task is the single shape for both paths: Action::Send (legacy quick dispatch) and Action::CreateTask (editor) build the same task/create request",
+    "validation": "goal non-empty and within the limit; acceptance non-empty and within the limit; dependency ids are a subset of the rendered candidates; the host stays authoritative and its errors are echoed verbatim with the form still open",
+    "blocked_events": "the client handles task_blocked and appends `[依赖] 任务已阻塞：<host reason>` to the pane in the warning colour"
+  },
+  "footer": "hints moved to two lines: Ctrl+R 刷新 / Ctrl+C 停止 now sit on the first line and Ctrl+F 编排 joins the task line; both lines are asserted to fit 132 columns",
+  "suite": {
+    "passed": 104,
+    "failed": 0,
+    "ignored": 2,
+    "groups": {
+      "core": 32,
+      "tui": 72
+    },
+    "ignored_reason": "core runtime_e2e needs installed Codex; tui real-host smoke needs a built codex-collab-core",
+    "new_tests": [
+      "text_buffer_edits_line_wise_at_char_boundaries",
+      "task_editor_opens_only_for_a_configured_pane",
+      "task_editor_maps_fields_and_submits_the_full_parameter_set",
+      "task_editor_requires_a_goal_and_an_acceptance",
+      "task_editor_enter_inserts_newlines_and_space_stays_text",
+      "task_editor_caps_dependencies_at_the_limit",
+      "task_editor_paste_keeps_newlines_and_ignores_text_in_the_list",
+      "task_form_labels_progress_and_refuses_unusable_dependencies",
+      "task_form_starts_from_the_coding_toggle_and_empty_text",
+      "task_modal_renders_goal_acceptance_dependencies_and_the_caret",
+      "empty_and_oversized_task_modals_render_without_panicking"
+    ],
+    "regressions_guarded": "the existing panes/input/history tests were kept and only adapted to TextBuf, so Enter dispatch, paste, history and caret editing stay covered"
+  },
+  "opt_in": {
+    "tui_include_ignored_passed": 73,
+    "real_host_smoke": "passed: the ignored test still drives a real codex-collab-core process through session/create, agent/configure, agent/list, task/list, approval/list, task/get, task/integrate, context/compact, agent/testConnection, agent/connectionResult, event/publish and task/output"
+  },
+  "format_check": "passed",
+  "clippy_warnings_as_errors": "passed",
+  "pty_demo_smoke": "passed: four panes, the live-only Ctrl+F stays inert in demo mode and does not steal focus, paste/send, caret editing, stop, confirmed quit, terminal restoration, non-TTY rejection",
+  "pty_live_smoke": "passed: after seeding a session and agent, Ctrl+F opened the editor, typing rendered the label set and Ctrl+S hint, Enter inserted a newline rather than dispatching, Tab reached acceptance and the dependency list, space on the coding field toggled it, and Ctrl+S produced the queued-task feedback. After the TUI exited, a second host session read the task back and asserted goal == `implement retry with backoff\\nsecond line`, acceptance == `tests pass and cancellation is covered`, coding == true, dependencies == [] — the parameters really reached task/create",
+  "pty_render_note": "ratatui emits only changed cells and the inline caret changes one cell per keystroke, so the live probe strips escape sequences and the `❙` marker before matching contiguous text, and drains until an expected needle appears instead of sleeping a fixed time",
+  "screen_snapshot": "evidence/stage-6-task-screen.txt is a live 40x132 frame with Ctrl+T queueing a probe task first (so the dependency row is real and shows 前置已失败), a two-line goal, an acceptance line and the caret still in the acceptance field",
+  "real_api_tested": false,
+  "real_api_blocker": "6-4 needs the provider, endpoint, model, protocol, whether spend is allowed, and who writes the credential through Ctrl+K; until then the connection probe keeps failing without a credential, which is itself visible in the snapshot's failed task row",
+  "evidence_script": "scripts/stage6_evidence.sh replays build -> workspace tests -> opt-in tests -> clippy -> fmt -> both pty probes -> the task-editor snapshot, and rewrites evidence/stage-6-tests.log",
+  "log": "evidence/stage-6-tests.log"
+}

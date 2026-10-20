@@ -34,14 +34,19 @@ AGENT = "11111111-2222-4333-8444-555555555555"
 MODEL = "planner-model"
 
 
-def seed():
-    """Drive the host's line protocol directly to create a session and one agent."""
+def with_host(calls):
+    """Run a short host session, then return its results in order.
+
+    Each call reopens the state directory; only one host may own it at a time, so this is used
+    before the TUI starts and after it exits.
+    """
     host = subprocess.Popen(
         [core, state, codex],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
         text=True, bufsize=1,
     )
     counter = 0
+    results = []
 
     def call(method, params):
         nonlocal counter
@@ -56,13 +61,36 @@ def seed():
                 assert "error" not in value, f"{method}: {value.get('error')}"
                 return value["result"]
 
-    session = call("session/create", {"repository": repo, "validation": [["/usr/bin/true"]]})
-    call("agent/configure", {
-        "id": AGENT, "sessionId": session["id"], "role": "coordinator", "model": MODEL,
-        "baseUrl": "https://example.invalid/v1", "protocol": "responses", "contextBytes": 65536,
-    })
-    host.stdin.close()
-    host.wait(timeout=10)
+    try:
+        for method, params in calls:
+            results.append(call(method, params))
+    finally:
+        host.stdin.close()
+        host.wait(timeout=10)
+    return results
+
+
+def seed():
+    """Create a session and one agent through the host's line protocol."""
+    session = with_host(
+        [("session/create", {"repository": repo, "validation": [["/usr/bin/true"]]})]
+    )[0]
+    with_host(
+        [
+            (
+                "agent/configure",
+                {
+                    "id": AGENT,
+                    "sessionId": session["id"],
+                    "role": "coordinator",
+                    "model": MODEL,
+                    "baseUrl": "https://example.invalid/v1",
+                    "protocol": "responses",
+                    "contextBytes": 65536,
+                },
+            )
+        ]
+    )
     return session["id"]
 
 
@@ -80,6 +108,22 @@ def drain(seconds=0.4):
     while time.monotonic() < deadline:
         if select.select([master], [], [], 0.05)[0]:
             output.extend(os.read(master, 65536))
+
+
+def text_now():
+    """Strip escapes and the inline caret, which the cell-diff stream repeats per keystroke."""
+    text = re.sub(rb"\x1b\[[0-9;?]*[A-Za-z]", b"", bytes(output)).decode("utf-8", "replace")
+    return text.replace("❙", "")
+
+
+def wait_for(needle, seconds=4.0):
+    """Drain until `needle` shows up; the UI polls the host, so a fixed sleep is flaky."""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        drain(0.1)
+        if needle in text_now():
+            return text_now()
+    raise AssertionError(f"{needle!r} did not render:\n{text_now()[-2000:]!r}")
 
 
 process = subprocess.Popen(
@@ -116,6 +160,12 @@ try:
     text = re.sub(rb"\x1b\[[0-9;?]*[A-Za-z]", b"", bytes(output)).decode("utf-8", "replace")
     assert "后续输入将作为编码任务提交" in text, (
         f"coding toggle not reflected:\n{text[-2000:]!r}"
+    )
+    os.write(master, b"\x05")  # Ctrl+E toggles it back off, so the editor starts from "关"
+    drain(0.3)
+    text = re.sub(rb"\x1b\[[0-9;?]*[A-Za-z]", b"", bytes(output)).decode("utf-8", "replace")
+    assert "按普通任务提交" in text, (
+        f"coding toggle did not turn off:\n{text[-2000:]!r}"
     )
 
     # Ctrl+G routes to the review flow; the seeded session has no task yet.
@@ -221,6 +271,39 @@ try:
     os.write(master, b"\x1bOR")  # F3 hides it again
     drain(0.3)
 
+    # Ctrl+F opens the task editor. Enter inserts a newline instead of dispatching, the coding
+    # switch is visible, and Ctrl+S sends the full parameter set (goal, acceptance, coding).
+    output.clear()
+    os.write(master, b"\x06")  # Ctrl+F
+    drain(0.7)
+    text = re.sub(rb"\x1b\[[0-9;?]*[A-Za-z]", b"", bytes(output)).decode("utf-8", "replace")
+    assert "编排任务" in text, f"task editor missing:\n{text[-2000:]!r}"
+    assert "任务目标" in text and "验收标准" in text, (
+        f"task editor fields missing:\n{text[-2000:]!r}"
+    )
+    assert "Ctrl+S" in text, "the task editor does not advertise Ctrl+S"
+    os.write(master, b"implement retry with backoff")
+    os.write(master, b"\r")  # Enter is a newline in the goal, not a dispatch
+    os.write(master, b"second line")
+    drain(0.3)
+    # ratatui writes only changed cells, and the inline caret changes one cell per keystroke, so
+    # drop the caret marker before matching contiguous text.
+    text = wait_for("second line")
+    assert "已提交任务" not in text, "Enter must not dispatch from the editor"
+    os.write(master, b"\t")  # goal -> acceptance
+    os.write(master, b"tests pass and cancellation is covered")
+    os.write(master, b"\t")  # acceptance -> dependencies
+    drain(0.2)
+    os.write(master, b"\t")  # dependencies -> coding
+    os.write(master, b" ")  # space toggles the coding switch
+    drain(0.3)
+    text = re.sub(rb"\x1b\[[0-9;?]*[A-Za-z]", b"", bytes(output)).decode("utf-8", "replace")
+    text = text.replace("❙", "")
+    assert "编码任务" in text, f"coding switch missing:\n{text[-2000:]!r}"
+    os.write(master, b"\x13")  # Ctrl+S dispatches
+    wait_for("任务已提交")
+
+
     os.write(master, b"\x11")  # Ctrl+Q
     drain(0.3)
     os.write(master, b"\r")  # Enter confirms quit
@@ -229,7 +312,20 @@ try:
     drain(0.3)
     assert termios.tcgetattr(slave) == before, "terminal input modes were not restored"
     assert b"\x1b[?1049l" in output, "alternate screen was not restored"
-    print("PASS: live session/agent rendering, coding toggle, review routing, compaction and create forms, agent configuration, connection probe, task output view, user constraint publication, masked credential form, confirmed quit, terminal restoration")
+
+    # Read the persisted task back: the editor's parameters must have reached `task/create`
+    # verbatim, including the newline and the coding flag.
+    tasks = with_host([("task/list", {"sessionId": session_id})])[0]
+    edited = [
+        task for task in tasks
+        if task.get("goal") == "implement retry with backoff\nsecond line"
+    ]
+    assert edited, f"the edited task was not persisted: {tasks!r}"
+    task = edited[0]
+    assert task["acceptance"] == "tests pass and cancellation is covered", task
+    assert task["coding"] is True, task
+    assert task["dependencies"] == [], "no dependency was selected"
+    print("PASS: live session/agent rendering, coding toggle, review routing, compaction and create forms, agent configuration, connection probe, task output view, user constraint publication, task editor with newline/acceptance/coding, masked credential form, confirmed quit, terminal restoration")
 finally:
     if process.poll() is None:
         process.kill()

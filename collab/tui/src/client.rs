@@ -3,8 +3,9 @@
 //! The client owns the host process, tracks in-flight requests by id, and applies responses and
 //! `collab/update` notifications to the [`App`]. It never reads the database or model adapters.
 use crate::app::{
-    ACCENT, Action, AgentForm, App, ApprovalItem, CompactForm, CreateForm, GREEN, MUTED,
-    OutputForm, Pane, PublishForm, ReviewForm, WARN, line, publish_kind_label,
+    ACCENT, Action, AgentForm, App, ApprovalItem, CompactForm, CreateForm, Dependency, GREEN,
+    MUTED, OutputForm, Pane, PublishForm, ReviewForm, TaskForm, TextBuf, WARN, line,
+    publish_kind_label,
 };
 use crate::host::{Host, HostEvent};
 use ratatui::style::Color;
@@ -57,14 +58,32 @@ enum Pending {
     CredentialSaved,
     CredentialDeleted,
     AgentConfigured,
-    TestConnection { pane: usize },
+    TestConnection {
+        pane: usize,
+    },
     ConnectionResult,
-    Published { kind: &'static str },
-    Output { pane: usize, task_id: String },
-    Review { pane: usize, task_id: String },
+    Published {
+        kind: &'static str,
+    },
+    /// A `task/list` read taken to build the task editor.
+    Compose {
+        pane: usize,
+    },
+    Output {
+        pane: usize,
+        task_id: String,
+    },
+    Review {
+        pane: usize,
+        task_id: String,
+    },
     Integrated,
-    Revision { pages: u32 },
-    Compacted { summary: String },
+    Revision {
+        pages: u32,
+    },
+    Compacted {
+        summary: String,
+    },
     Sent,
     Cancelled,
 }
@@ -358,6 +377,15 @@ impl Client {
                 );
                 self.refresh_lists(app);
             }
+            Pending::Compose { pane } => {
+                let note = if value.as_array().is_some_and(|tasks| tasks.is_empty()) {
+                    "本会话还没有任务；依赖留空或先派发一个任务。".to_owned()
+                } else {
+                    "目标与验收标准会随任务一起交给模型；依赖未满足时任务保持排队，前置任务失败则直接阻塞。".to_owned()
+                };
+                app.task = Some(build_task_form(app, pane, &value, note));
+                app.feedback = format!("任务编辑器已就绪（窗格 {}）。", pane + 1);
+            }
             Pending::Output { pane, task_id } => self.apply_output(app, pane, &task_id, &value),
             Pending::Review { pane, task_id } => {
                 self.open_review(app, pane, task_id, &value);
@@ -484,6 +512,18 @@ impl Client {
                     app.push_line(index, format!("[任务] {status} {summary}"), MUTED);
                 }
             }
+            "task_blocked" => {
+                // The host only emits this once a dependency failed; the task will not retry.
+                if let Some(index) = agent.and_then(|a| app.pane_of(a)) {
+                    let reason = clip(data["reason"].as_str().unwrap_or(""), 160);
+                    let text = if reason.is_empty() {
+                        "[依赖] 任务已阻塞：前置任务未完成。".to_owned()
+                    } else {
+                        format!("[依赖] 任务已阻塞：{reason}")
+                    };
+                    app.push_line(index, text, WARN);
+                }
+            }
             "integration" => {
                 if let Some(index) = agent.and_then(|a| app.pane_of(a)) {
                     let status = data["status"].as_str().unwrap_or("?");
@@ -569,26 +609,37 @@ impl Client {
     fn on_action(&mut self, app: &mut App, action: Action) {
         match action {
             Action::Send { pane, text, coding } => {
+                // The plain Enter dispatch keeps its stage-5 shape exactly: no acceptance text and
+                // no dependencies. Ctrl+I is the editor that fills them.
+                self.dispatch_task(app, pane, text, String::new(), Vec::new(), coding);
+            }
+            Action::CreateTask {
+                pane,
+                goal,
+                acceptance,
+                dependencies,
+                coding,
+            } => {
+                self.dispatch_task(app, pane, goal, acceptance, dependencies, coding);
+            }
+            Action::OpenTask { pane } => {
+                if self.session.is_none() {
+                    app.feedback = "尚未连接会话，无法编排任务。".into();
+                    return;
+                }
+                if app.panes[pane].agent_id.is_none() {
+                    app.feedback = "该窗格尚未配置 Agent，无法编排任务。".into();
+                    return;
+                }
                 let Some(session) = self.session.clone() else {
-                    app.feedback = "尚未连接会话，无法派发任务。".into();
                     return;
                 };
-                let Some(agent) = app.panes[pane].agent_id.clone() else {
-                    app.feedback = "该窗格尚未配置 Agent。".into();
-                    return;
-                };
+                app.feedback = "正在读取任务列表…".into();
                 self.request(
                     app,
-                    "task/create",
-                    json!({
-                        "sessionId": session,
-                        "agentId": agent,
-                        "goal": text,
-                        "acceptance": "",
-                        "dependencies": [],
-                        "coding": coding
-                    }),
-                    Pending::Sent,
+                    "task/list",
+                    json!({"sessionId": session}),
+                    Pending::Compose { pane },
                 );
             }
             Action::Cancel { pane } => {
@@ -814,6 +865,39 @@ impl Client {
                 );
             }
         }
+    }
+
+    /// Send one `task/create`; the plain Enter path and the editor share this wire shape.
+    fn dispatch_task(
+        &mut self,
+        app: &mut App,
+        pane: usize,
+        goal: String,
+        acceptance: String,
+        dependencies: Vec<String>,
+        coding: bool,
+    ) {
+        let Some(session) = self.session.clone() else {
+            app.feedback = "尚未连接会话，无法派发任务。".into();
+            return;
+        };
+        let Some(agent) = app.panes[pane].agent_id.clone() else {
+            app.feedback = "该窗格尚未配置 Agent。".into();
+            return;
+        };
+        self.request(
+            app,
+            "task/create",
+            json!({
+                "sessionId": session,
+                "agentId": agent,
+                "goal": goal,
+                "acceptance": acceptance,
+                "dependencies": dependencies,
+                "coding": coding
+            }),
+            Pending::Sent,
+        );
     }
 
     /// Surface a host error; a compaction revision clash refreshes and reopens the form.
@@ -1067,6 +1151,71 @@ fn build_agent_form(app: &App, pane: usize) -> AgentForm {
         } else {
             format!("为窗格 {} 新增 Agent（角色由位置决定）。", pane + 1)
         },
+    }
+}
+
+/// Build the task editor from a `task/list` snapshot.
+///
+/// Every task of the session is offered, but a dependency that already failed can never complete,
+/// so it is listed as unusable instead of silently hard-blocking the new task.
+fn build_task_form(app: &App, pane: usize, tasks: &Value, note: String) -> TaskForm {
+    let dependencies = tasks
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|task| {
+            let id = task["id"].as_str()?.to_owned();
+            let status = task["status"].as_str().unwrap_or("");
+            let coding = task["coding"].as_bool().unwrap_or(false);
+            let integration = task["integrationStatus"].as_str().unwrap_or("pending");
+            let selectable = !matches!(status, "failed" | "cancelled" | "interrupted" | "blocked");
+            let progress = if status == "completed" && coding && integration != "integrated" {
+                "等待集成".to_owned()
+            } else {
+                status_label(status).to_owned()
+            };
+            let hint = if !selectable {
+                "前置已失败：勾选后新任务会直接阻塞"
+            } else if status == "completed" {
+                "已完成"
+            } else {
+                "未完成，新任务会等待它"
+            };
+            let who = task["agentId"]
+                .as_str()
+                .and_then(|agent| app.pane_of(agent))
+                .map(|index| app.panes[index].role.clone())
+                .unwrap_or_else(|| "已移除窗格".to_owned());
+            let goal = clip(
+                task["goal"]
+                    .as_str()
+                    .unwrap_or("")
+                    .lines()
+                    .next()
+                    .unwrap_or(""),
+                36,
+            );
+            Some(Dependency {
+                id,
+                label: format!(
+                    "{who} · {progress}{} · {goal}",
+                    if coding { "（编码）" } else { "" }
+                ),
+                selectable,
+                note: hint.to_owned(),
+                selected: false,
+            })
+        })
+        .collect();
+    TaskForm {
+        pane,
+        goal: TextBuf::default(),
+        acceptance: TextBuf::default(),
+        dependencies,
+        index: 0,
+        coding: app.coding,
+        field: 0,
+        note,
     }
 }
 
@@ -1442,6 +1591,61 @@ mod tests {
         let queued = probe_outcome(&json!({"taskId":"t"}));
         assert!(!queued.terminal);
         assert!(queued.feedback.contains("等待调度"));
+    }
+
+    #[test]
+    fn task_form_labels_progress_and_refuses_unusable_dependencies() {
+        let mut app = App::live();
+        apply_agents(
+            &mut app,
+            &[
+                json!({"id":"w1","role":"worker","model":"code","baseUrl":"https://b","protocol":"responses"}),
+            ],
+        );
+        let tasks = json!([
+            {"id":"t1","agentId":"w1","goal":"实现重试\n第二行","status":"running","coding":true,"integrationStatus":"pending"},
+            {"id":"t2","agentId":"w1","goal":"改文档","status":"completed","coding":true,"integrationStatus":"pending"},
+            {"id":"t3","agentId":"w1","goal":"已集成","status":"completed","coding":true,"integrationStatus":"integrated"},
+            {"id":"t4","agentId":"w1","goal":"坏了","status":"failed","coding":false,"integrationStatus":"pending"},
+            {"id":"t5","agentId":"w9","goal":"孤儿任务","status":"queued","coding":false,"integrationStatus":"pending"}
+        ]);
+        let form = build_task_form(&app, 1, &tasks, "note".into());
+        assert_eq!(form.pane, 1);
+        assert_eq!(form.field, 0);
+        assert_eq!(form.selected().len(), 0);
+        assert_eq!(form.dependencies.len(), 5);
+        assert!(form.dependencies[0].label.contains("工作1"));
+        assert!(form.dependencies[0].label.contains("工作中"));
+        assert!(form.dependencies[0].label.contains("（编码）"));
+        assert!(form.dependencies[0].label.contains("实现重试"));
+        assert!(
+            !form.dependencies[0].label.contains("第二行"),
+            "a multi-line goal is clipped to its first line: {}",
+            form.dependencies[0].label
+        );
+        assert!(form.dependencies[0].selectable);
+        assert!(form.dependencies[1].label.contains("等待集成"));
+        assert!(form.dependencies[2].label.contains("已完成"));
+        assert!(
+            !form.dependencies[3].selectable,
+            "a failed dependency hard-blocks"
+        );
+        assert!(form.dependencies[3].note.contains("阻塞"));
+        assert!(form.dependencies[4].label.contains("已移除窗格"));
+        assert_eq!(app.pane_of("w9"), None);
+    }
+
+    #[test]
+    fn task_form_starts_from_the_coding_toggle_and_empty_text() {
+        let mut app = App::live();
+        app.coding = true;
+        let form = build_task_form(&app, 2, &json!([]), "note".into());
+        assert_eq!(form.pane, 2);
+        assert!(form.coding, "the pane's coding switch seeds the editor");
+        assert!(form.goal.is_empty() && form.acceptance.is_empty());
+        assert!(form.dependencies.is_empty());
+        assert_eq!(form.index, 0);
+        assert_eq!(form.note, "note");
     }
 
     #[test]

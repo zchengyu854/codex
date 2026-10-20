@@ -1,13 +1,13 @@
 # Codex 多模型协作终端
 
-基于 Codex 的独立扩展项目，与 RoboPi 分开。上游提交固定于 `upstream.json`，开发分支为 `codex/multi-model-desktop`。目前完成源码/接口验证、Rust 协作核心、终端壳层演示、终端接入协作后台的四个段落（真实会话/Agent/任务显示、公开文本流、操作审批与密钥提交、编码开关与差异审查集成、会话创建与上下文压缩），并补齐 Agent 配置表单、连接自检与用户约束发布（阶段 5 前三段）。界面为单终端多窗格。
+基于 Codex 的独立扩展项目，与 RoboPi 分开。上游提交固定于 `upstream.json`，开发分支为 `codex/multi-model-desktop`。目前完成源码/接口验证、Rust 协作核心、终端壳层演示、终端接入协作后台的四个段落（真实会话/Agent/任务显示、公开文本流、操作审批与密钥提交、编码开关与差异审查集成、会话创建与上下文压缩）、阶段 5 的五段（Agent 配置、连接自检、用户约束、任务结果查看、输入行光标编辑与命令历史），以及阶段 6 的第一段（任务编排：目标/验收标准/依赖/编码）。界面为单终端多窗格。
 
 - [第 1 阶段：基线与接口验证](docs/stage-1.md)
 - [第 2 阶段：协作核心及验收](docs/stage-2.md)
 - [终端壳层：运行与操作](docs/stage-3-terminal.md)
 - [阶段 4：终端接入协作后台](docs/stage-4-host-client.md)
 - [阶段 5：补齐终端契约覆盖](docs/stage-5-coverage.md)
-- [阶段 6：参数可达与真实验证（设计待确认）](docs/stage-6-plan.md)
+- [阶段 6：参数可达与真实验证（6-1 已实现）](docs/stage-6-plan.md)
 - [后台接口与行为约定](docs/core-api.md)
 
 ## 当前能力
@@ -34,7 +34,7 @@ cargo run  --locked --manifest-path collab/Cargo.toml -p codex-collab-tui -- \
   --state /absolute/path/to/state --session <会话 ID>
 ```
 
-`--demo` 与实时模式二选一；未指定 `--session` 时使用第一个会话，没有任何会话且给出 `--repository` 时按其创建（需至少一条 `--validation`），否则弹出创建表单。输入行支持光标编辑与命令历史（`←`/`→` 移动光标、`Home`/`End` 行首行尾、`Backspace`/`Delete` 删除、`Up`/`Down` 回看本窗格已派发的输入）。Enter 派发任务、Ctrl+C 取消、Ctrl+R 刷新、Ctrl+A 配置 Agent（角色由窗格位置决定，`agent/configure`）、Ctrl+T 连接自检（`agent/testConnection`，会真实调用模型）、Ctrl+U 发布用户约束（`event/publish`，需求/用户覆盖优先于模型决策）、Ctrl+O 查看任务输出（`task/output`，持久化摘要 + 运行中公开草稿 + 只读附件）、Ctrl+K 设置密钥、Ctrl+E 切换编码任务、Ctrl+G 审查并集成、Ctrl+P 压缩上下文、Ctrl+N 新建会话、F3 共享记录；待审操作会弹出审批模态（Y 批准 / N 拒绝）。详见阶段 4 与阶段 5 文档。
+`--demo` 与实时模式二选一；未指定 `--session` 时使用第一个会话，没有任何会话且给出 `--repository` 时按其创建（需至少一条 `--validation`），否则弹出创建表单。输入行支持光标编辑与命令历史（`←`/`→` 移动光标、`Home`/`End` 行首行尾、`Backspace`/`Delete` 删除、`Up`/`Down` 回看本窗格已派发的输入）。Enter 派发任务（验收标准留空、无依赖）、Ctrl+F 打开任务编辑器（多行目标与验收标准、依赖勾选、编码开关；`Enter` 换行，`Ctrl+S` 派发，验收标准必填）、Ctrl+C 取消、Ctrl+R 刷新、Ctrl+A 配置 Agent（角色由窗格位置决定，`agent/configure`）、Ctrl+T 连接自检（`agent/testConnection`，会真实调用模型）、Ctrl+U 发布用户约束（`event/publish`，需求/用户覆盖优先于模型决策）、Ctrl+O 查看任务输出（`task/output`，持久化摘要 + 运行中公开草稿 + 只读附件）、Ctrl+K 设置密钥、Ctrl+E 切换编码任务、Ctrl+G 审查并集成、Ctrl+P 压缩上下文、Ctrl+N 新建会话、F3 共享记录；待审操作会弹出审批模态（Y 批准 / N 拒绝）。详见阶段 4、5 与阶段 6 文档。
 
 ## 运行后台
 
@@ -56,6 +56,7 @@ cargo clippy --locked --manifest-path collab/Cargo.toml --workspace --all-target
 python3 collab/scripts/probe_terminal_live.py collab/target/debug/codex-collab-tui collab/target/debug/codex-collab-core
 python3 collab/scripts/snapshot_terminal.py collab/target/debug/codex-collab-tui --demo
 collab/scripts/stage5_evidence.sh   # 重放以上步骤并重写阶段 5 证据日志与快照
+collab/scripts/stage6_evidence.sh   # 阶段 6：同上思路，快照为任务编辑器画面
 ```
 
 端到端测试运行真实 Codex 执行进程和本地模拟 API，不使用真实 API Key。可设置 `CODEX_COLLAB_BIN` 指向源码构建的执行文件；默认使用 PATH 中的 Codex。终端接入测试需先构建 `codex-collab-core`（或设置 `CODEX_COLLAB_CORE`），伪终端实时脚本使用本地行协议，不调用真实模型。

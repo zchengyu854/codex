@@ -43,6 +43,114 @@ fn parse_validation(text: &str) -> Vec<Vec<String>> {
         .collect()
 }
 
+/// A text buffer with a byte-offset caret that always sits on a UTF-8 boundary.
+///
+/// The pane input line and the task editor both edit text at a caret, so the arithmetic lives in
+/// one place. `\n` is ordinary content: line-level Home/End and newline insertion work for both the
+/// single-line pane input and the multi-line task editor.
+#[derive(Clone, Default, Debug)]
+pub struct TextBuf {
+    pub text: String,
+    pub cursor: usize,
+}
+
+impl TextBuf {
+    /// A buffer whose caret starts at the end, like a shell prompt.
+    pub fn end(text: impl Into<String>) -> Self {
+        let text = text.into();
+        let cursor = text.len();
+        Self { text, cursor }
+    }
+
+    /// Replace the contents and put the caret at the end.
+    pub fn set(&mut self, text: impl Into<String>) {
+        *self = Self::end(text);
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.text.is_empty()
+    }
+
+    pub fn clear(&mut self) {
+        self.text.clear();
+        self.cursor = 0;
+    }
+
+    /// Clamp the caret into the text, so public field writes can never desync the two.
+    pub fn sync_cursor(&mut self) {
+        self.cursor = self.cursor.min(self.text.len());
+        while !self.text.is_char_boundary(self.cursor) {
+            self.cursor -= 1;
+        }
+    }
+
+    /// Insert one character at the caret; returns false once the byte cap is reached.
+    pub fn insert_char(&mut self, character: char, limit: usize) -> bool {
+        if self.text.len() + character.len_utf8() > limit {
+            return false;
+        }
+        self.sync_cursor();
+        self.text.insert(self.cursor, character);
+        self.cursor += character.len_utf8();
+        true
+    }
+
+    /// Move the caret one character left.
+    pub fn move_left(&mut self) {
+        self.sync_cursor();
+        if let Some((index, _)) = self.text[..self.cursor].char_indices().next_back() {
+            self.cursor = index;
+        }
+    }
+
+    /// Move the caret one character right.
+    pub fn move_right(&mut self) {
+        self.sync_cursor();
+        if let Some(character) = self.text[self.cursor..].chars().next() {
+            self.cursor += character.len_utf8();
+        }
+    }
+
+    /// Move the caret to the start of the caret's line.
+    pub fn move_line_start(&mut self) {
+        self.sync_cursor();
+        let start = self.text[..self.cursor].rfind('\n').map_or(0, |at| at + 1);
+        self.cursor = start;
+    }
+
+    /// Move the caret to the end of the caret's line.
+    pub fn move_line_end(&mut self) {
+        self.sync_cursor();
+        let end = self.text[self.cursor..]
+            .find('\n')
+            .map_or(self.text.len(), |at| self.cursor + at);
+        self.cursor = end;
+    }
+
+    /// Delete the character before the caret.
+    pub fn backspace(&mut self) {
+        self.sync_cursor();
+        if let Some((index, _)) = self.text[..self.cursor].char_indices().next_back() {
+            self.text.remove(index);
+            self.cursor = index;
+        }
+    }
+
+    /// Delete the character under the caret.
+    pub fn delete(&mut self) {
+        self.sync_cursor();
+        if self.cursor < self.text.len() {
+            self.text.remove(self.cursor);
+        }
+    }
+}
+
+impl PartialEq<&str> for TextBuf {
+    fn eq(&self, other: &&str) -> bool {
+        self.text == *other
+    }
+}
+
 /// Where the pane data comes from: built-in demonstration data, or the live collaboration host.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -61,9 +169,7 @@ pub struct Pane {
     /// Configured UTF-8 request byte budget (`contextBytes`), when the pane has an agent.
     pub context_bytes: Option<usize>,
     pub history: Vec<Line<'static>>,
-    pub input: String,
-    /// Caret position in `input`, always on a UTF-8 boundary.
-    pub cursor: usize,
+    pub input: TextBuf,
     pub scroll: usize,
     pub stopped: bool,
     /// Public text streamed for the running task and not yet finalized by a public message.
@@ -71,7 +177,7 @@ pub struct Pane {
     /// Lines dispatched from this pane, newest last; recalled with Up/Down.
     sent: Vec<String>,
     /// Position within `sent` during a recall, plus the draft stashed when the recall started.
-    recall: Option<(usize, String)>,
+    recall: Option<(usize, TextBuf)>,
 }
 
 impl Pane {
@@ -85,65 +191,12 @@ impl Pane {
             status: "未配置".into(),
             context_bytes: None,
             history: Vec::new(),
-            input: String::new(),
-            cursor: 0,
+            input: TextBuf::default(),
             scroll: 0,
             stopped: false,
             draft: String::new(),
             sent: Vec::new(),
             recall: None,
-        }
-    }
-
-    /// Clamp the caret into the input, so public field writes can never desync the two.
-    fn sync_cursor(&mut self) {
-        self.cursor = self.cursor.min(self.input.len());
-        while !self.input.is_char_boundary(self.cursor) {
-            self.cursor -= 1;
-        }
-    }
-
-    /// Insert one character at the caret; returns false once the byte cap is reached.
-    fn insert_char(&mut self, character: char, limit: usize) -> bool {
-        if self.input.len() + character.len_utf8() > limit {
-            return false;
-        }
-        self.sync_cursor();
-        self.input.insert(self.cursor, character);
-        self.cursor += character.len_utf8();
-        true
-    }
-
-    /// Move the caret one character left.
-    fn move_left(&mut self) {
-        self.sync_cursor();
-        if let Some((index, _)) = self.input[..self.cursor].char_indices().next_back() {
-            self.cursor = index;
-        }
-    }
-
-    /// Move the caret one character right.
-    fn move_right(&mut self) {
-        self.sync_cursor();
-        if let Some(character) = self.input[self.cursor..].chars().next() {
-            self.cursor += character.len_utf8();
-        }
-    }
-
-    /// Delete the character before the caret.
-    fn backspace(&mut self) {
-        self.sync_cursor();
-        if let Some((index, _)) = self.input[..self.cursor].char_indices().next_back() {
-            self.input.remove(index);
-            self.cursor = index;
-        }
-    }
-
-    /// Delete the character under the caret.
-    fn delete(&mut self) {
-        self.sync_cursor();
-        if self.cursor < self.input.len() {
-            self.input.remove(self.cursor);
         }
     }
 
@@ -180,8 +233,7 @@ impl Pane {
                 previous
             }
         };
-        self.input = self.sent[index].clone();
-        self.cursor = self.input.len();
+        self.input.set(self.sent[index].clone());
     }
 
     /// Walk forward through the recalled lines, restoring the stashed draft past the newest.
@@ -191,11 +243,10 @@ impl Pane {
         };
         if index + 1 < self.sent.len() {
             self.recall = Some((index + 1, stash));
-            self.input = self.sent[index + 1].clone();
+            self.input.set(self.sent[index + 1].clone());
         } else {
             self.input = stash;
         }
-        self.cursor = self.input.len();
     }
 }
 
@@ -215,6 +266,57 @@ pub struct CredentialForm {
     pub input: String,
 }
 
+/// One `task/list` entry offered as a dependency in the task editor.
+///
+/// The host accepts any task id of the session, but a dependency that already failed can never
+/// complete, so the editor marks those as unusable instead of letting them hard-block the task.
+pub struct Dependency {
+    pub id: String,
+    /// Display label: pane role, progress and a goal excerpt.
+    pub label: String,
+    /// Whether selecting it can still be satisfied.
+    pub selectable: bool,
+    pub note: String,
+    pub selected: bool,
+}
+
+/// Task editor (`task/create`): goal, acceptance criteria, dependencies and the coding switch.
+///
+/// The plain Enter dispatch on a pane keeps sending an empty acceptance and no dependencies; this
+/// editor is the path that fills the parameters the host already supports.
+pub struct TaskForm {
+    pub pane: usize,
+    pub goal: TextBuf,
+    pub acceptance: TextBuf,
+    pub dependencies: Vec<Dependency>,
+    /// Highlighted dependency row.
+    pub index: usize,
+    pub coding: bool,
+    /// Focused field: 0 goal, 1 acceptance, 2 dependencies, 3 coding.
+    pub field: usize,
+    pub note: String,
+}
+
+impl TaskForm {
+    /// The focused text field, if the focus is on one.
+    fn text_field(&mut self) -> Option<&mut TextBuf> {
+        match self.field {
+            0 => Some(&mut self.goal),
+            1 => Some(&mut self.acceptance),
+            _ => None,
+        }
+    }
+
+    /// The selected, still satisfiable dependencies, in list order.
+    pub fn selected(&self) -> Vec<String> {
+        self.dependencies
+            .iter()
+            .filter(|dependency| dependency.selected && dependency.selectable)
+            .map(|dependency| dependency.id.clone())
+            .collect()
+    }
+}
+
 /// Review-and-integrate form for a completed coding task.
 pub struct ReviewForm {
     pub pane: usize,
@@ -228,6 +330,12 @@ pub struct ReviewForm {
     pub scroll: usize,
 }
 
+/// Byte caps the host enforces on `task/create`, mirrored so the editor cannot build a rejected task.
+pub const TASK_GOAL_LIMIT: usize = 64_000;
+pub const TASK_ACCEPTANCE_LIMIT: usize = 16_000;
+/// How many dependencies the editor lets one task declare.
+pub const MAX_DEPENDENCIES: usize = 8;
+
 /// A user intent raised by the UI and resolved by the live client against the host.
 #[derive(Debug)]
 pub enum Action {
@@ -235,6 +343,17 @@ pub enum Action {
         pane: usize,
         text: String,
         coding: bool,
+    },
+    /// A task edited in the composer, carrying the parameters the plain send path leaves empty.
+    CreateTask {
+        pane: usize,
+        goal: String,
+        acceptance: String,
+        dependencies: Vec<String>,
+        coding: bool,
+    },
+    OpenTask {
+        pane: usize,
     },
     Cancel {
         pane: usize,
@@ -439,6 +558,7 @@ pub struct App {
     pub create: Option<CreateForm>,
     pub agent: Option<AgentForm>,
     pub publish: Option<PublishForm>,
+    pub task: Option<TaskForm>,
     pub output: Option<OutputForm>,
     pub coding: bool,
 }
@@ -474,6 +594,7 @@ impl App {
             create: None,
             agent: None,
             publish: None,
+            task: None,
             output: None,
             coding: false,
         }
@@ -587,6 +708,7 @@ impl App {
             create: None,
             agent: None,
             publish: None,
+            task: None,
             output: None,
             coding: false,
         }
@@ -625,6 +747,10 @@ impl App {
         }
         if self.output.is_some() {
             self.output_key(key);
+            return false;
+        }
+        if self.task.is_some() {
+            self.task_key(key);
             return false;
         }
         if self.publish.is_some() {
@@ -666,6 +792,9 @@ impl App {
                 KeyCode::Char('t') if self.mode == Mode::Live => self.open_probe(),
                 KeyCode::Char('u') if self.mode == Mode::Live => self.open_publish(),
                 KeyCode::Char('o') if self.mode == Mode::Live => self.open_output(),
+                // Ctrl+F opens the task editor. Ctrl+I would be indistinguishable from Tab (both
+                // arrive as 0x09), so it can never be a distinct binding in a terminal.
+                KeyCode::Char('f') if self.mode == Mode::Live => self.open_task(),
                 KeyCode::Char('e') if self.mode == Mode::Live => {
                     self.coding = !self.coding;
                     self.feedback = if self.coding {
@@ -712,16 +841,16 @@ impl App {
                 if pane.scroll > 0 {
                     pane.scroll = 0;
                 } else {
-                    pane.cursor = pane.input.len();
+                    pane.input.move_line_end();
                 }
             }
-            KeyCode::Home => self.panes[self.focused].cursor = 0,
-            KeyCode::Left => self.panes[self.focused].move_left(),
-            KeyCode::Right => self.panes[self.focused].move_right(),
+            KeyCode::Home => self.panes[self.focused].input.move_line_start(),
+            KeyCode::Left => self.panes[self.focused].input.move_left(),
+            KeyCode::Right => self.panes[self.focused].input.move_right(),
             KeyCode::Up => self.panes[self.focused].recall_previous(),
             KeyCode::Down => self.panes[self.focused].recall_next(),
-            KeyCode::Delete => self.panes[self.focused].delete(),
-            KeyCode::Backspace => self.panes[self.focused].backspace(),
+            KeyCode::Delete => self.panes[self.focused].input.delete(),
+            KeyCode::Backspace => self.panes[self.focused].input.backspace(),
             KeyCode::Enter => self.send(),
             KeyCode::Char(c) => self.paste(&c.to_string()),
             _ => {}
@@ -895,6 +1024,188 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    /// Ask the client to open the task editor for the focused pane (live mode).
+    fn open_task(&mut self) {
+        if self.panes[self.focused].agent_id.is_none() {
+            self.feedback = "该窗格尚未配置 Agent，无法编排任务。".into();
+            return;
+        }
+        self.outbox.push(Action::OpenTask { pane: self.focused });
+        self.feedback = "正在读取任务列表，准备任务编辑器…".into();
+    }
+
+    /// Keys while the task editor is open. Enter inserts a newline in the focused text field and
+    /// Ctrl+S submits, so a multi-line goal never dispatches by accident; a space is content in the
+    /// text fields and a toggle in the dependency list and the coding switch.
+    fn task_key(&mut self, key: KeyEvent) {
+        if self.task.is_none() {
+            return;
+        }
+        let field = self.task.as_ref().map(|form| form.field).unwrap_or(0);
+        let text_field = field < 2;
+        if key.modifiers.contains(KeyModifiers::CONTROL) {
+            if key.code == KeyCode::Char('s') {
+                self.submit_task();
+            }
+            return;
+        }
+        match key.code {
+            KeyCode::Esc => {
+                self.task = None;
+                self.feedback = "已取消任务编排。".into();
+            }
+            KeyCode::Tab => self.task_field(1),
+            KeyCode::BackTab => self.task_field(3),
+            KeyCode::Enter if text_field => {
+                let limit = if field == 0 {
+                    TASK_GOAL_LIMIT
+                } else {
+                    TASK_ACCEPTANCE_LIMIT
+                };
+                self.task_edit(|buffer| {
+                    buffer.insert_char('\n', limit);
+                });
+            }
+            KeyCode::Backspace => self.task_edit(TextBuf::backspace),
+            KeyCode::Delete => self.task_edit(TextBuf::delete),
+            KeyCode::Left => {
+                if field == 3 {
+                    self.task_toggle_coding();
+                } else {
+                    self.task_edit(TextBuf::move_left);
+                }
+            }
+            KeyCode::Right => {
+                if field == 3 {
+                    self.task_toggle_coding();
+                } else {
+                    self.task_edit(TextBuf::move_right);
+                }
+            }
+            KeyCode::Home => self.task_edit(TextBuf::move_line_start),
+            KeyCode::End => self.task_edit(TextBuf::move_line_end),
+            KeyCode::Up if field == 2 => self.task_row(-1),
+            KeyCode::Down if field == 2 => self.task_row(1),
+            KeyCode::PageUp if field == 2 => self.task_row(-5),
+            KeyCode::PageDown if field == 2 => self.task_row(5),
+            KeyCode::Char(' ') if field == 2 => self.task_toggle_dependency(),
+            KeyCode::Char(' ') if field == 3 => self.task_toggle_coding(),
+            KeyCode::Char(c) if !c.is_control() && text_field => {
+                let limit = if field == 0 {
+                    TASK_GOAL_LIMIT
+                } else {
+                    TASK_ACCEPTANCE_LIMIT
+                };
+                self.task_edit(|buffer| {
+                    buffer.insert_char(c, limit);
+                });
+            }
+            _ => {}
+        }
+    }
+
+    /// Move the caret within the focused task text field.
+    fn task_edit(&mut self, edit: impl FnOnce(&mut TextBuf)) {
+        if let Some(form) = self.task.as_mut()
+            && let Some(buffer) = form.text_field()
+        {
+            edit(buffer);
+        }
+    }
+
+    /// Cycle the focused task field.
+    fn task_field(&mut self, step: usize) {
+        if let Some(form) = self.task.as_mut() {
+            form.field = (form.field + step) % 4;
+            if form.field != 2 {
+                form.note.clear();
+            }
+        }
+    }
+
+    /// Move the highlighted dependency row, clamped to the list.
+    fn task_row(&mut self, step: isize) {
+        if let Some(form) = self.task.as_mut()
+            && !form.dependencies.is_empty()
+        {
+            let last = form.dependencies.len() - 1;
+            let next = form.index as isize + step;
+            form.index = next.clamp(0, last as isize) as usize;
+        }
+    }
+
+    /// Toggle the highlighted dependency, refusing candidates that can never be satisfied.
+    fn task_toggle_dependency(&mut self) {
+        let Some(form) = self.task.as_mut() else {
+            return;
+        };
+        let selected = form
+            .dependencies
+            .iter()
+            .filter(|dependency| dependency.selected)
+            .count();
+        let Some(dependency) = form.dependencies.get_mut(form.index) else {
+            return;
+        };
+        if !dependency.selectable {
+            form.note = format!("{}{}", dependency.label, dependency.note);
+            return;
+        }
+        if !dependency.selected && selected >= MAX_DEPENDENCIES {
+            form.note = format!("一次最多声明 {MAX_DEPENDENCIES} 项依赖。");
+            return;
+        }
+        dependency.selected = !dependency.selected;
+        form.note.clear();
+    }
+
+    /// Flip the coding switch; `task/create` then requires integration before dependents run.
+    fn task_toggle_coding(&mut self) {
+        if let Some(form) = self.task.as_mut() {
+            form.coding = !form.coding;
+        }
+    }
+
+    /// Point the editor at one field and explain what is missing.
+    fn task_note(&mut self, field: usize, note: &str) {
+        if let Some(form) = self.task.as_mut() {
+            form.field = field;
+            form.note = note.into();
+        }
+    }
+
+    /// Validate the editor locally, then queue `task/create` with the full parameter set.
+    fn submit_task(&mut self) {
+        let Some(form) = self.task.as_ref() else {
+            return;
+        };
+        let goal = form.goal.text.trim().to_owned();
+        if goal.is_empty() {
+            self.task_note(0, "先填写任务目标。");
+            return;
+        }
+        let acceptance = form.acceptance.text.trim().to_owned();
+        if acceptance.is_empty() {
+            self.task_note(
+                1,
+                "填写验收标准；若确实不需要，请在窗格内用 Enter 直接派发。",
+            );
+            return;
+        }
+        let pane = form.pane;
+        let coding = form.coding;
+        let dependencies = form.selected();
+        self.task = None;
+        self.outbox.push(Action::CreateTask {
+            pane,
+            goal,
+            acceptance,
+            dependencies,
+            coding,
+        });
+        self.feedback = "已提交任务，等待后台确认。".into();
     }
 
     /// Ask the client to open the user-publication form (live mode).
@@ -1227,6 +1538,35 @@ impl App {
     }
 
     pub fn paste(&mut self, text: &str) {
+        if let Some(form) = self.task.as_mut() {
+            // The editor's text fields are multi-line: a pasted newline stays a newline. The
+            // dependency list and the coding switch take no text at all.
+            if form.field < 2 {
+                let limit = if form.field == 0 {
+                    TASK_GOAL_LIMIT
+                } else {
+                    TASK_ACCEPTANCE_LIMIT
+                };
+                let mut full = false;
+                for character in text.chars() {
+                    let character = match character {
+                        '\n' => '\n',
+                        '\t' => ' ',
+                        c if c.is_control() => continue,
+                        c => c,
+                    };
+                    let buffer = form.text_field().expect("a text field is focused");
+                    if !buffer.insert_char(character, limit) {
+                        full = true;
+                        break;
+                    }
+                }
+                if full {
+                    self.feedback = "任务文本已达上限，请分段填写。".into();
+                }
+            }
+            return;
+        }
         if let Some(form) = self.agent.as_mut() {
             if form.field == 2 {
                 return;
@@ -1362,7 +1702,7 @@ impl App {
             return;
         }
         let pane = &mut self.panes[self.focused];
-        // shortcut: 单行输入，上限 4096 字节；接入真实任务时再考虑多行编辑。
+        // shortcut: 单行输入，上限 4096 字节；多行任务文本在 Ctrl+F 任务编辑器里。
         for c in text.chars() {
             let c = if matches!(c, '\n' | '\r' | '\t') {
                 ' '
@@ -1372,7 +1712,7 @@ impl App {
             if c.is_control() {
                 continue;
             }
-            if !pane.insert_char(c, 4096) {
+            if !pane.input.insert_char(c, 4096) {
                 self.feedback = "输入上限为 4096 字节，请分段输入。".into();
                 break;
             }
@@ -1381,7 +1721,7 @@ impl App {
 
     fn send(&mut self) {
         let index = self.focused;
-        let message = self.panes[index].input.trim().to_owned();
+        let message = self.panes[index].input.text.trim().to_owned();
         if message.is_empty() {
             return;
         }
@@ -1400,7 +1740,6 @@ impl App {
                     p.history.drain(..excess);
                 }
                 p.input.clear();
-                p.cursor = 0;
                 p.recall = None;
                 p.scroll = 0;
                 p.stopped = false;
@@ -1411,7 +1750,6 @@ impl App {
             Mode::Live => {
                 let p = &mut self.panes[index];
                 p.input.clear();
-                p.cursor = 0;
                 p.recall = None;
                 p.scroll = 0;
                 self.outbox.push(Action::Send {
@@ -1790,28 +2128,28 @@ mod tests {
         app.key(press(KeyCode::Left));
         app.paste("X");
         assert_eq!(app.panes[0].input, "abXcd");
-        assert_eq!(app.panes[0].cursor, 3);
+        assert_eq!(app.panes[0].input.cursor, 3);
         app.key(press(KeyCode::Backspace));
         assert_eq!(app.panes[0].input, "abcd");
         app.key(press(KeyCode::Delete));
         assert_eq!(app.panes[0].input, "abd");
         app.key(press(KeyCode::Home));
-        assert_eq!(app.panes[0].cursor, 0);
+        assert_eq!(app.panes[0].input.cursor, 0);
         app.paste("Y");
         assert_eq!(app.panes[0].input, "Yabd");
         app.key(press(KeyCode::End));
-        assert_eq!(app.panes[0].cursor, 4);
+        assert_eq!(app.panes[0].input.cursor, 4);
         app.paste("Z");
         assert_eq!(app.panes[0].input, "YabdZ");
         // Arrow keys never move the caret off the line.
         for _ in 0..8 {
             app.key(press(KeyCode::Right));
         }
-        assert_eq!(app.panes[0].cursor, 5);
+        assert_eq!(app.panes[0].input.cursor, 5);
         for _ in 0..8 {
             app.key(press(KeyCode::Left));
         }
-        assert_eq!(app.panes[0].cursor, 0);
+        assert_eq!(app.panes[0].input.cursor, 0);
         app.key(press(KeyCode::Backspace));
         assert_eq!(
             app.panes[0].input, "YabdZ",
@@ -1825,7 +2163,7 @@ mod tests {
         app.key(press(KeyCode::Left));
         app.key(press(KeyCode::Backspace));
         assert_eq!(app.panes[0].input, "中文b");
-        assert_eq!(app.panes[0].cursor, 6);
+        assert_eq!(app.panes[0].input.cursor, 6);
         app.key(press(KeyCode::Home));
         app.key(press(KeyCode::Delete));
         assert_eq!(
@@ -1847,7 +2185,10 @@ mod tests {
         app.paste("draft");
         app.key(press(KeyCode::Up));
         assert_eq!(app.panes[0].input, "second line");
-        assert_eq!(app.panes[0].cursor, 11, "recall puts the caret at the end");
+        assert_eq!(
+            app.panes[0].input.cursor, 11,
+            "recall puts the caret at the end"
+        );
         app.key(press(KeyCode::Up));
         assert_eq!(app.panes[0].input, "first line");
         app.key(press(KeyCode::Up));
@@ -2099,7 +2440,7 @@ mod tests {
         app.key(press(KeyCode::Backspace));
         assert_eq!(app.panes[0].input, "中文 第二行 结");
         app.paste(&"中".repeat(5000));
-        assert!(app.panes[0].input.len() <= 4096);
+        assert!(app.panes[0].input.text.len() <= 4096);
     }
     #[test]
     fn zoom_shared_and_scroll_are_independent() {
@@ -2127,5 +2468,216 @@ mod tests {
             app.key(press(KeyCode::Enter));
         }
         assert_eq!(app.panes[0].history.len(), 200);
+    }
+
+    fn task_form() -> TaskForm {
+        TaskForm {
+            pane: 0,
+            goal: TextBuf::default(),
+            acceptance: TextBuf::default(),
+            dependencies: vec![
+                Dependency {
+                    id: "t1".into(),
+                    label: "工作1 · 工作中 · 实现重试".into(),
+                    selectable: true,
+                    note: "未完成，新任务会等待它".into(),
+                    selected: false,
+                },
+                Dependency {
+                    id: "t2".into(),
+                    label: "工作2 · 失败 · 坏的构建".into(),
+                    selectable: false,
+                    note: "前置已失败：勾选后新任务会直接阻塞".into(),
+                    selected: false,
+                },
+            ],
+            index: 0,
+            coding: false,
+            field: 0,
+            note: String::new(),
+        }
+    }
+    #[test]
+    fn text_buffer_edits_line_wise_at_char_boundaries() {
+        let mut buffer = TextBuf::end("第一行\n第二行");
+        assert_eq!(buffer.cursor, buffer.text.len());
+        buffer.move_line_start();
+        assert_eq!(buffer.cursor, 10, "Home stops after the newline");
+        buffer.move_line_end();
+        assert_eq!(buffer.cursor, buffer.text.len());
+        let mut buffer = TextBuf::end("中文");
+        buffer.move_left();
+        buffer.backspace();
+        assert_eq!(
+            buffer, "文",
+            "Backspace removes the character before the caret"
+        );
+        assert_eq!(buffer.cursor, 0);
+        buffer.delete();
+        assert_eq!(buffer, "");
+        assert!(buffer.is_empty());
+        buffer.insert_char('a', 1);
+        assert!(!buffer.insert_char('b', 1), "the byte cap is enforced");
+        assert_eq!(buffer, "a");
+    }
+    #[test]
+    fn task_editor_opens_only_for_a_configured_pane() {
+        let mut app = App::live();
+        app.key(ctrl('f'));
+        assert!(app.outbox.is_empty(), "an unconfigured pane cannot compose");
+        assert!(app.feedback.contains("尚未配置"));
+        assert!(app.task.is_none());
+        app.panes[2].agent_id = Some("w".into());
+        app.focused = 2;
+        app.key(ctrl('f'));
+        assert!(matches!(
+            app.outbox.as_slice(),
+            [Action::OpenTask { pane: 2 }]
+        ));
+    }
+    #[test]
+    fn task_editor_maps_fields_and_submits_the_full_parameter_set() {
+        let mut app = App::live();
+        app.task = Some(task_form());
+        app.paste("实现退避重试");
+        assert_eq!(app.task.as_ref().unwrap().goal, "实现退避重试");
+        app.key(press(KeyCode::Tab));
+        assert_eq!(app.task.as_ref().unwrap().field, 1);
+        app.paste("测试通过且取消不误伤");
+        app.key(press(KeyCode::Tab));
+        assert_eq!(app.task.as_ref().unwrap().field, 2);
+        app.key(press(KeyCode::Char(' ')));
+        assert!(app.task.as_ref().unwrap().dependencies[0].selected);
+        app.key(press(KeyCode::Down));
+        assert_eq!(app.task.as_ref().unwrap().index, 1);
+        app.key(press(KeyCode::Char(' ')));
+        assert!(
+            !app.task.as_ref().unwrap().dependencies[1].selected,
+            "a failed dependency can never satisfy the task"
+        );
+        assert!(app.task.as_ref().unwrap().note.contains("阻塞"));
+        app.key(press(KeyCode::Down));
+        assert_eq!(app.task.as_ref().unwrap().index, 1, "the highlight clamps");
+        app.key(press(KeyCode::Tab));
+        assert_eq!(app.task.as_ref().unwrap().field, 3);
+        app.key(press(KeyCode::Char(' ')));
+        assert!(app.task.as_ref().unwrap().coding);
+        app.key(ctrl('s'));
+        assert!(app.task.is_none());
+        match app.outbox.as_slice() {
+            [
+                Action::CreateTask {
+                    pane,
+                    goal,
+                    acceptance,
+                    dependencies,
+                    coding,
+                },
+            ] => {
+                assert_eq!(*pane, 0);
+                assert_eq!(goal, "实现退避重试");
+                assert_eq!(acceptance, "测试通过且取消不误伤");
+                assert_eq!(dependencies, &vec!["t1".to_string()]);
+                assert!(coding);
+            }
+            other => panic!("unexpected outbox: {other:?}"),
+        }
+    }
+    #[test]
+    fn task_editor_requires_a_goal_and_an_acceptance() {
+        let mut app = App::live();
+        app.task = Some(task_form());
+        app.key(ctrl('s'));
+        {
+            let form = app.task.as_ref().unwrap();
+            assert_eq!(form.field, 0);
+            assert!(form.note.contains("任务目标"));
+        }
+        assert!(app.outbox.is_empty());
+        app.paste("实现重试");
+        app.key(ctrl('s'));
+        {
+            let form = app.task.as_ref().unwrap();
+            assert_eq!(form.field, 1);
+            assert!(form.note.contains("验收标准"));
+        }
+        assert!(app.outbox.is_empty(), "the editor requires acceptance text");
+        app.paste("测试通过");
+        app.key(ctrl('s'));
+        assert!(app.task.is_none());
+        assert!(matches!(app.outbox.as_slice(), [Action::CreateTask { .. }]));
+    }
+    #[test]
+    fn task_editor_enter_inserts_newlines_and_space_stays_text() {
+        let mut app = App::live();
+        app.task = Some(task_form());
+        app.paste("第一行");
+        app.key(press(KeyCode::Enter));
+        app.paste("第二行");
+        assert_eq!(app.task.as_ref().unwrap().goal, "第一行\n第二行");
+        app.key(press(KeyCode::Char(' ')));
+        assert_eq!(app.task.as_ref().unwrap().goal, "第一行\n第二行 ");
+        app.key(press(KeyCode::Home));
+        assert_eq!(
+            app.task.as_ref().unwrap().goal.cursor,
+            10,
+            "Home is line-level"
+        );
+        app.key(press(KeyCode::End));
+        assert_eq!(
+            app.task.as_ref().unwrap().goal.cursor,
+            app.task.as_ref().unwrap().goal.text.len()
+        );
+        app.key(press(KeyCode::Esc));
+        assert!(app.task.is_none());
+        assert!(app.outbox.is_empty(), "cancel must not dispatch");
+    }
+    #[test]
+    fn task_editor_caps_dependencies_at_the_limit() {
+        let mut app = App::live();
+        let mut form = task_form();
+        form.dependencies = (0..10)
+            .map(|index| Dependency {
+                id: format!("t{index}"),
+                label: format!("任务 {index}"),
+                selectable: true,
+                note: String::new(),
+                selected: false,
+            })
+            .collect();
+        app.task = Some(form);
+        app.task.as_mut().unwrap().field = 2;
+        for _ in 0..=MAX_DEPENDENCIES {
+            app.key(press(KeyCode::Char(' ')));
+            app.key(press(KeyCode::Down));
+        }
+        let form = app.task.as_ref().unwrap();
+        assert_eq!(form.selected().len(), MAX_DEPENDENCIES);
+        assert!(form.note.contains("最多"), "the cap is explained");
+        app.task.as_mut().unwrap().index = 0;
+        app.key(press(KeyCode::Up));
+        assert_eq!(app.task.as_ref().unwrap().index, 0);
+        app.key(press(KeyCode::PageDown));
+        assert_eq!(app.task.as_ref().unwrap().index, 5);
+        assert_eq!(
+            app.task.as_ref().unwrap().field,
+            2,
+            "paging scrolls the list instead of cycling fields"
+        );
+    }
+    #[test]
+    fn task_editor_paste_keeps_newlines_and_ignores_text_in_the_list() {
+        let mut app = App::live();
+        app.task = Some(task_form());
+        app.paste("第一行\n第二行\ttab\x1b");
+        assert_eq!(app.task.as_ref().unwrap().goal, "第一行\n第二行 tab");
+        // Home is line-level, so the insertion lands at the start of the caret's line.
+        app.key(press(KeyCode::Home));
+        app.paste("X");
+        assert_eq!(app.task.as_ref().unwrap().goal, "第一行\nX第二行 tab");
+        app.task.as_mut().unwrap().field = 2;
+        app.paste("ignored");
+        assert_eq!(app.task.as_ref().unwrap().goal.text, "第一行\nX第二行 tab");
+        assert_eq!(app.task.as_ref().unwrap().acceptance, "", "no stray text");
     }
 }

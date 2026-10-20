@@ -1,5 +1,6 @@
 use crate::app::{
-    ACCENT, App, GREEN, MUTED, PUBLISH_KINDS, WARN, line, publish_kind_label, short_id,
+    ACCENT, App, GREEN, MAX_DEPENDENCIES, MUTED, PUBLISH_KINDS, TaskForm, TextBuf, WARN, line,
+    publish_kind_label, short_id,
 };
 use ratatui::{
     Frame,
@@ -89,7 +90,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         Paragraph::new(vec![
             Line::styled(
                 format!(
-                    "[{} {}] 编码:{}  Tab 焦点  F2 放大  F3 共享  Ctrl+A 配置  Ctrl+Q 退出",
+                    "[{} {}] 编码:{}  Tab 焦点  F2 放大  F3 共享  Ctrl+A 配置  Ctrl+R 刷新  Ctrl+C 停止  Ctrl+Q 退出",
                     app.focused + 1,
                     focused.role,
                     if app.coding { "开" } else { "关" }
@@ -97,7 +98,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
                 Style::default().fg(ACCENT),
             ),
             Line::styled(
-                "Ctrl+T 自检  Ctrl+U 约束  Ctrl+O 结果  Ctrl+E 编码  Ctrl+G 审查集成  Ctrl+P 压缩  Ctrl+N 新建  Ctrl+K 密钥  Ctrl+R 刷新  Ctrl+C 停止",
+                "Ctrl+T 自检  Ctrl+U 约束  Ctrl+O 结果  Ctrl+F 编排  Ctrl+E 编码  Ctrl+G 审查集成  Ctrl+P 压缩  Ctrl+N 新建  Ctrl+K 密钥",
                 Style::default().fg(ACCENT),
             ),
             Line::styled(app.feedback.as_str(), Style::default().fg(MUTED)),
@@ -302,6 +303,75 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             popup,
         );
     }
+    if let Some(form) = &app.task {
+        let role = app.panes[form.pane].role.clone();
+        let agent = app.panes[form.pane]
+            .agent_id
+            .clone()
+            .unwrap_or_else(|| "—".into());
+        let mut lines = vec![
+            line(
+                format!("窗格 {} {role} · Agent {agent}", form.pane + 1),
+                MUTED,
+            ),
+            line(
+                format!(
+                    "编码 {} · 已选依赖 {} 项",
+                    if form.coding {
+                        "开（产物需集成）"
+                    } else {
+                        "关"
+                    },
+                    form.selected().len()
+                ),
+                MUTED,
+            ),
+            line(String::new(), FOREGROUND),
+        ];
+        push_caret_field(
+            &mut lines,
+            "任务目标（Enter 换行）",
+            &form.goal,
+            form.field == 0,
+        );
+        push_caret_field(
+            &mut lines,
+            "验收标准（Enter 换行）",
+            &form.acceptance,
+            form.field == 1,
+        );
+        push_dependencies(&mut lines, form);
+        lines.push(line(
+            format!(
+                "{}编码任务（空格 切换）  {}",
+                if form.field == 3 { "❯ " } else { "  " },
+                if form.coding { "◉ 开" } else { "○ 关" }
+            ),
+            if form.field == 3 { ACCENT } else { MUTED },
+        ));
+        if !form.note.is_empty() {
+            lines.push(line(form.note.clone(), WARN));
+        }
+        lines.push(line(
+            "Tab 切换字段 · Enter 换行 · 空格 勾选 · Ctrl+S 派发 · Esc 取消（验收标准必填）",
+            GREEN,
+        ));
+        // Keep the key hints visible even on short terminals.
+        let height = full.height.saturating_sub(2).clamp(3, 34);
+        let popup = centered(full, full.width.min(120), height);
+        frame.render_widget(Clear, popup);
+        frame.render_widget(
+            Paragraph::new(lines)
+                .style(Style::default().bg(BACKGROUND).fg(FOREGROUND))
+                .wrap(Wrap { trim: false })
+                .block(
+                    Block::bordered()
+                        .title(" 编排任务 · task/create 目标、验收与依赖 ")
+                        .border_style(Style::default().fg(ACCENT)),
+                ),
+            popup,
+        );
+    }
     if let Some(form) = &app.publish {
         let selector = PUBLISH_KINDS
             .iter()
@@ -449,6 +519,89 @@ fn push_block(lines: &mut Vec<Line<'static>>, text: &str, limit: usize) {
     }
 }
 
+/// Push a multi-line task text field, marking the caret inside the focused field.
+///
+/// The caret is inlined rather than moved with the terminal cursor, so wrapping stays correct and
+/// no line can be pushed out of the viewport by an inaccurate row calculation.
+fn push_caret_field(lines: &mut Vec<Line<'static>>, label: &str, buffer: &TextBuf, focused: bool) {
+    lines.push(line(
+        format!("{}{label}", if focused { "❯ " } else { "  " }),
+        if focused { ACCENT } else { MUTED },
+    ));
+    if buffer.is_empty() && !focused {
+        lines.push(line("  （空）", MUTED));
+        return;
+    }
+    let color = if focused { ACCENT } else { FOREGROUND };
+    // Clamp once, so a stale caret can never split a character or hide the marker.
+    let mut cursor = buffer.cursor.min(buffer.text.len());
+    while !buffer.text.is_char_boundary(cursor) {
+        cursor -= 1;
+    }
+    let mut start = 0usize;
+    for text in buffer.text.split('\n') {
+        let end = start + text.len();
+        let marking = focused && cursor >= start && cursor <= end;
+        if marking {
+            let caret = cursor - start;
+            lines.push(line(
+                format!("  {}❙{}", &text[..caret], &text[caret..]),
+                color,
+            ));
+        } else {
+            lines.push(line(format!("  {text}"), color));
+        }
+        start = end + 1;
+    }
+}
+
+/// Push the dependency rows: a window around the highlight, with unusable rows marked.
+fn push_dependencies(lines: &mut Vec<Line<'static>>, form: &TaskForm) {
+    lines.push(line(
+        format!(
+            "{}依赖（空格 勾选，最多 {MAX_DEPENDENCIES} 项）",
+            if form.field == 2 { "❯ " } else { "  " }
+        ),
+        if form.field == 2 { ACCENT } else { MUTED },
+    ));
+    if form.dependencies.is_empty() {
+        lines.push(line("  （本会话暂无可作为依赖的任务）", MUTED));
+        return;
+    }
+    const WINDOW: usize = 8;
+    let start = form
+        .index
+        .saturating_sub(WINDOW / 2)
+        .min(form.dependencies.len().saturating_sub(WINDOW));
+    for (offset, dependency) in form.dependencies[start..].iter().take(WINDOW).enumerate() {
+        let row = start + offset;
+        let active = form.field == 2 && row == form.index;
+        let color = if !dependency.selectable {
+            BORDER
+        } else if active {
+            ACCENT
+        } else {
+            FOREGROUND
+        };
+        lines.push(line(
+            format!(
+                "{} {} {}  {}",
+                if active { "▸" } else { " " },
+                if dependency.selected { "◉" } else { "○" },
+                dependency.label,
+                dependency.note
+            ),
+            color,
+        ));
+    }
+    if form.dependencies.len() > WINDOW {
+        lines.push(line(
+            format!("  …（共 {} 项，↑↓ 移动）", form.dependencies.len()),
+            MUTED,
+        ));
+    }
+}
+
 /// Push a labelled form field; the focused field is marked and highlighted.
 fn push_field(lines: &mut Vec<Line<'static>>, label: &str, value: &str, focused: bool) {
     let marker = if focused { "❯ " } else { "  " };
@@ -522,7 +675,7 @@ fn draw_pane(frame: &mut Frame, app: &mut App, index: usize, area: Rect) {
     let top = max_scroll.saturating_sub(p.scroll).min(u16::MAX as usize) as u16;
     frame.render_widget(history.scroll((top, 0)), rows[1]);
     let width = rows[2].width.saturating_sub(3);
-    let (visible, caret) = input_window(&p.input, p.cursor, width);
+    let (visible, caret) = input_window(&p.input.text, p.input.cursor, width);
     frame.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(
@@ -703,6 +856,101 @@ mod tests {
         assert!(text.contains("full result"));
         assert!(text.contains("Ctrl+O 结果"), "the footer advertises Ctrl+O");
     }
+
+    #[test]
+    fn task_modal_renders_goal_acceptance_dependencies_and_the_caret() {
+        use crate::app::{Dependency, TaskForm, TextBuf};
+        let mut app = App::live();
+        app.panes[0].agent_id = Some("a".into());
+        app.task = Some(TaskForm {
+            pane: 0,
+            goal: TextBuf::end("实现退避重试"),
+            acceptance: TextBuf::end("测试通过"),
+            dependencies: vec![
+                Dependency {
+                    id: "t1".into(),
+                    label: "工作1 · 工作中 · 加锁".into(),
+                    selectable: true,
+                    note: "未完成，新任务会等待它".into(),
+                    selected: true,
+                },
+                Dependency {
+                    id: "t2".into(),
+                    label: "工作2 · 失败 · 坏的构建".into(),
+                    selectable: false,
+                    note: "前置已失败：勾选后新任务会直接阻塞".into(),
+                    selected: false,
+                },
+            ],
+            index: 1,
+            coding: true,
+            field: 1,
+            note: "依赖未满足时任务保持排队；前置失败则直接阻塞".into(),
+        });
+        let text = screen(&mut app, 132, 44);
+        assert!(text.contains("编排任务"));
+        assert!(text.contains("实现退避重试"));
+        assert!(text.contains("测试通过"));
+        assert!(
+            text.contains('◉') && text.contains('○'),
+            "selection is visible"
+        );
+        assert!(
+            text.contains("前置已失败"),
+            "an unusable dependency explains itself"
+        );
+        assert!(text.contains("◉ 开"), "the coding switch shows its state");
+        assert!(text.contains("Ctrl+S 派发"));
+        assert!(text.contains("Ctrl+F 编排"), "the footer advertises Ctrl+F");
+        let caret = text
+            .lines()
+            .find(|row| row.contains('❙'))
+            .expect("the focused field shows a caret");
+        assert!(
+            caret.contains("测试通过"),
+            "the caret sits in the focused field: {caret:?}"
+        );
+    }
+    #[test]
+    fn empty_and_oversized_task_modals_render_without_panicking() {
+        use crate::app::{Dependency, TaskForm, TextBuf};
+        let mut app = App::live();
+        let goal = TextBuf {
+            cursor: 99,
+            ..TextBuf::default()
+        };
+        app.task = Some(TaskForm {
+            pane: 3,
+            goal,
+            acceptance: TextBuf::default(),
+            dependencies: Vec::new(),
+            index: 7,
+            coding: false,
+            field: 0,
+            note: String::new(),
+        });
+        // An out-of-range caret is clamped instead of panicking, and the empty field still shows it.
+        let text = screen(&mut app, 132, 44);
+        assert!(text.contains("暂无可作为依赖的任务"));
+        assert!(text.contains('❙'));
+        app.task.as_mut().unwrap().field = 2;
+        app.task.as_mut().unwrap().dependencies = (0..30)
+            .map(|index| Dependency {
+                id: format!("t{index}"),
+                label: format!("任务 {index}"),
+                selectable: true,
+                note: "未完成，新任务会等待它".into(),
+                selected: false,
+            })
+            .collect();
+        app.task.as_mut().unwrap().index = usize::MAX;
+        for width in [0, 7, 60] {
+            for height in [0, 3, 12] {
+                screen(&mut app, width, height);
+            }
+        }
+    }
+
     #[test]
     fn publish_modal_renders_kind_selector_and_content() {
         use crate::app::PublishForm;
@@ -796,6 +1044,7 @@ mod tests {
             "Ctrl+T 自检",
             "Ctrl+U 约束",
             "Ctrl+O 结果",
+            "Ctrl+F 编排",
             "Ctrl+G 审查集成",
             "Ctrl+C 停止",
             "Ctrl+Q 退出",

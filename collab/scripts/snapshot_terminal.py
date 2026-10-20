@@ -361,6 +361,8 @@ def main():
     parser.add_argument("--cols", type=int, default=140)
     parser.add_argument("--wait", type=float, default=1.6, help="seconds to let the first frame settle")
     parser.add_argument("--sessions", type=int, default=1, help="live mode: how many sessions to seed")
+    parser.add_argument("--state", help="live mode: reuse this state directory instead of seeding")
+    parser.add_argument("--session", help="live mode: session to open when reusing --state")
     parser.add_argument("--keys", default="", help="'|'-separated key script applied after the first frame")
     parser.add_argument("--keys-delay", type=float, default=0.45)
     args = parser.parse_args()
@@ -373,7 +375,13 @@ def main():
     if args.live:
         if not args.core:
             parser.error("--live needs --core")
-        session = seed_session(args.core, args.codex, state, extra=max(0, args.sessions - 1))
+        if args.state:
+            if not args.session:
+                parser.error("--state needs --session")
+            state = args.state
+            session = args.session
+        else:
+            session = seed_session(args.core, args.codex, state, extra=max(0, args.sessions - 1))
         command += ["--state", state, "--host", args.core, "--session", session, "--codex", args.codex]
     else:
         command += ["--demo"]

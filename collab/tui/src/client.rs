@@ -94,7 +94,7 @@ enum Pending {
         task_id: String,
     },
     Integrated,
-    /// `task/abortIntegration` answered for a task that was stuck in an integration conflict.
+    /// `task/abortIntegration` answered for a paused integration.
     Aborted,
     Revision {
         pages: u32,
@@ -527,9 +527,11 @@ impl Client {
             }
             Pending::Output { pane, task_id } => self.apply_output(app, pane, &task_id, &value),
             Pending::Review { pane, task_id } => {
-                if value["integrationStatus"].as_str() == Some("conflict") {
-                    // Reviewing again cannot help: the conflicted merge is still sitting in the
-                    // integration worktree and would block the next task too. Drop it first.
+                if matches!(
+                    value["integrationStatus"].as_str(),
+                    Some("conflict" | "failed" | "interrupted")
+                ) {
+                    // Restore the paused worktree before reviewing another candidate.
                     self.request(
                         app,
                         "task/abortIntegration",
@@ -554,8 +556,8 @@ impl Client {
                 app.feedback = match status {
                     "integrated" => "已集成到协作分支。".into(),
                     "conflict" => "存在冲突，集成工作区已保留，请人工核查。".into(),
-                    "failed" => "验证失败，候选提交已保留。".into(),
-                    "interrupted" => "集成被中断，请核查集成工作区。".into(),
+                    "failed" => "验证失败，候选已保留；核查工作区后按 Ctrl+G 放弃本次集成。".into(),
+                    "interrupted" => "集成被中断；核查工作区后按 Ctrl+G 放弃本次集成。".into(),
                     _ => "集成未完成。".into(),
                 };
                 self.refresh_lists(app);
@@ -1889,6 +1891,32 @@ mod tests {
             integration_text(&json!({"status":"pending"})),
             "[集成] 未集成"
         );
+    }
+
+    #[test]
+    fn review_routes_paused_integrations_to_abort_and_keeps_pending_reviewable() {
+        for status in ["conflict", "failed", "interrupted", "pending"] {
+            let host = Host::from_command(
+                std::process::Command::new("/bin/cat"),
+                "echo fixture".into(),
+            )
+            .unwrap();
+            let mut client = Client::new(host, Options::default());
+            let mut app = App::live();
+            client.on_result(&mut app, Pending::Review { pane: 0, task_id: "old-task".into() }, json!({"status":"completed","coding":true,"commit":"reviewed-commit","integrationStatus":status}));
+            if status == "pending" {
+                assert_eq!(app.review.as_ref().unwrap().task_id, "old-task");
+                assert!(client.pending.is_empty());
+            } else {
+                assert!(app.review.is_none());
+                assert!(
+                    client
+                        .pending
+                        .values()
+                        .any(|p| matches!(p, Pending::Aborted))
+                );
+            }
+        }
     }
 
     #[test]

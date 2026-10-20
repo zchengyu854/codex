@@ -1,0 +1,259 @@
+{
+  "abortInterruptedIntegration": {
+    "aborted": true,
+    "head": "7de0b41561663c00228065a2dcaa29221bc882a6",
+    "message": "paused candidate dropped; integrate again after the change is reworked",
+    "status": "pending"
+  },
+  "cancelledTask": {
+    "acceptance": "project tests pass",
+    "agentId": "a352504f-2551-4e0e-842c-c7c9156c4e50",
+    "baseCommit": "7de0b41561663c00228065a2dcaa29221bc882a6",
+    "coding": true,
+    "commit": null,
+    "contextVersion": 0,
+    "createdBy": null,
+    "dependencies": [],
+    "goal": "wait without finishing",
+    "id": "921d89aa-d930-449a-bc3a-ceef6ef0e991",
+    "integrationStatus": "pending",
+    "result": "cancelled by user or coordinator; inspect worktree for partial effects",
+    "sessionId": "a5dcbc52-e7f5-42e6-a27d-df94c7b826b1",
+    "status": "cancelled",
+    "worktree": "/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/.tmp89acrV/state/worktrees/a5dcbc52-e7f5-42e6-a27d-df94c7b826b1/921d89aa-d930-449a-bc3a-ceef6ef0e991"
+  },
+  "committedTaskAfterRecovery": {
+    "acceptance": "project tests pass",
+    "agentId": "a352504f-2551-4e0e-842c-c7c9156c4e50",
+    "baseCommit": "7de0b41561663c00228065a2dcaa29221bc882a6",
+    "coding": true,
+    "commit": "b7b1d87a7b2f56aefa40063d758de740edf1e967",
+    "contextVersion": 0,
+    "createdBy": null,
+    "dependencies": [],
+    "goal": "completed total change",
+    "id": "e3834c3e-f2ef-43d5-97c0-49797eb1b709",
+    "integrationStatus": "interrupted",
+    "result": "candidate committed",
+    "sessionId": "a5dcbc52-e7f5-42e6-a27d-df94c7b826b1",
+    "status": "completed",
+    "worktree": "/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/.tmp89acrV/state/worktrees/a5dcbc52-e7f5-42e6-a27d-df94c7b826b1/e3834c3e-f2ef-43d5-97c0-49797eb1b709"
+  },
+  "committedTaskBeforeRecovery": {
+    "acceptance": "project tests pass",
+    "agentId": "a352504f-2551-4e0e-842c-c7c9156c4e50",
+    "baseCommit": "7de0b41561663c00228065a2dcaa29221bc882a6",
+    "coding": true,
+    "commit": "b7b1d87a7b2f56aefa40063d758de740edf1e967",
+    "contextVersion": 0,
+    "createdBy": null,
+    "dependencies": [],
+    "goal": "completed total change",
+    "id": "e3834c3e-f2ef-43d5-97c0-49797eb1b709",
+    "integrationStatus": "pending",
+    "result": "candidate committed",
+    "sessionId": "a5dcbc52-e7f5-42e6-a27d-df94c7b826b1",
+    "status": "completed",
+    "worktree": "/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/.tmp89acrV/state/worktrees/a5dcbc52-e7f5-42e6-a27d-df94c7b826b1/e3834c3e-f2ef-43d5-97c0-49797eb1b709"
+  },
+  "events": [
+    {
+      "agentId": null,
+      "createdAt": 1792491964620,
+      "data": {
+        "baseCommit": "7de0b41561663c00228065a2dcaa29221bc882a6"
+      },
+      "kind": "session_created",
+      "revision": 1,
+      "sessionId": "a5dcbc52-e7f5-42e6-a27d-df94c7b826b1",
+      "taskId": null
+    },
+    {
+      "agentId": "a352504f-2551-4e0e-842c-c7c9156c4e50",
+      "createdAt": 1792491964621,
+      "data": {
+        "model": "fixture",
+        "protocol": "responses",
+        "role": "worker"
+      },
+      "kind": "agent_configured",
+      "revision": 2,
+      "sessionId": "a5dcbc52-e7f5-42e6-a27d-df94c7b826b1",
+      "taskId": null
+    },
+    {
+      "agentId": "a352504f-2551-4e0e-842c-c7c9156c4e50",
+      "createdAt": 1792491964621,
+      "data": {
+        "acceptance": "project tests pass",
+        "dependencies": [],
+        "goal": "completed total change"
+      },
+      "kind": "task_queued",
+      "revision": 3,
+      "sessionId": "a5dcbc52-e7f5-42e6-a27d-df94c7b826b1",
+      "taskId": "e3834c3e-f2ef-43d5-97c0-49797eb1b709"
+    },
+    {
+      "agentId": "a352504f-2551-4e0e-842c-c7c9156c4e50",
+      "createdAt": 1792491964622,
+      "data": {},
+      "kind": "task_started",
+      "revision": 4,
+      "sessionId": "a5dcbc52-e7f5-42e6-a27d-df94c7b826b1",
+      "taskId": "e3834c3e-f2ef-43d5-97c0-49797eb1b709"
+    },
+    {
+      "agentId": "a352504f-2551-4e0e-842c-c7c9156c4e50",
+      "createdAt": 1792491964756,
+      "data": {
+        "commit": "b7b1d87a7b2f56aefa40063d758de740edf1e967",
+        "status": "completed",
+        "summary": "candidate committed"
+      },
+      "kind": "task_finished",
+      "revision": 5,
+      "sessionId": "a5dcbc52-e7f5-42e6-a27d-df94c7b826b1",
+      "taskId": "e3834c3e-f2ef-43d5-97c0-49797eb1b709"
+    },
+    {
+      "agentId": "a352504f-2551-4e0e-842c-c7c9156c4e50",
+      "createdAt": 1792491964756,
+      "data": {
+        "acceptance": "project tests pass",
+        "dependencies": [],
+        "goal": "wait without finishing"
+      },
+      "kind": "task_queued",
+      "revision": 6,
+      "sessionId": "a5dcbc52-e7f5-42e6-a27d-df94c7b826b1",
+      "taskId": "921d89aa-d930-449a-bc3a-ceef6ef0e991"
+    },
+    {
+      "agentId": "a352504f-2551-4e0e-842c-c7c9156c4e50",
+      "createdAt": 1792491964757,
+      "data": {},
+      "kind": "task_started",
+      "revision": 7,
+      "sessionId": "a5dcbc52-e7f5-42e6-a27d-df94c7b826b1",
+      "taskId": "921d89aa-d930-449a-bc3a-ceef6ef0e991"
+    },
+    {
+      "agentId": "a352504f-2551-4e0e-842c-c7c9156c4e50",
+      "createdAt": 1792491965017,
+      "data": {
+        "commit": null,
+        "status": "cancelled",
+        "summary": "cancelled by user or coordinator; inspect worktree for partial effects"
+      },
+      "kind": "task_finished",
+      "revision": 8,
+      "sessionId": "a5dcbc52-e7f5-42e6-a27d-df94c7b826b1",
+      "taskId": "921d89aa-d930-449a-bc3a-ceef6ef0e991"
+    },
+    {
+      "agentId": "a352504f-2551-4e0e-842c-c7c9156c4e50",
+      "createdAt": 1792491965069,
+      "data": {
+        "acceptance": "project tests pass",
+        "dependencies": [],
+        "goal": "crashed before completion"
+      },
+      "kind": "task_queued",
+      "revision": 9,
+      "sessionId": "a5dcbc52-e7f5-42e6-a27d-df94c7b826b1",
+      "taskId": "0bcb256a-79af-4fc1-bf9e-f323a1c16768"
+    },
+    {
+      "agentId": "a352504f-2551-4e0e-842c-c7c9156c4e50",
+      "createdAt": 1792491965070,
+      "data": {},
+      "kind": "task_started",
+      "revision": 10,
+      "sessionId": "a5dcbc52-e7f5-42e6-a27d-df94c7b826b1",
+      "taskId": "0bcb256a-79af-4fc1-bf9e-f323a1c16768"
+    },
+    {
+      "agentId": "a352504f-2551-4e0e-842c-c7c9156c4e50",
+      "createdAt": 1792491965122,
+      "data": {
+        "evidence": {
+          "review": "simulated in-flight integration"
+        },
+        "status": "checking"
+      },
+      "kind": "integration",
+      "revision": 11,
+      "sessionId": "a5dcbc52-e7f5-42e6-a27d-df94c7b826b1",
+      "taskId": "e3834c3e-f2ef-43d5-97c0-49797eb1b709"
+    },
+    {
+      "agentId": "a352504f-2551-4e0e-842c-c7c9156c4e50",
+      "createdAt": 1792491965150,
+      "data": {
+        "reason": "process stopped; inspect files and effects before creating replacement work"
+      },
+      "kind": "recovery_required",
+      "revision": 12,
+      "sessionId": "a5dcbc52-e7f5-42e6-a27d-df94c7b826b1",
+      "taskId": "e3834c3e-f2ef-43d5-97c0-49797eb1b709"
+    },
+    {
+      "agentId": "a352504f-2551-4e0e-842c-c7c9156c4e50",
+      "createdAt": 1792491965150,
+      "data": {
+        "reason": "process stopped; inspect files and effects before creating replacement work"
+      },
+      "kind": "recovery_required",
+      "revision": 13,
+      "sessionId": "a5dcbc52-e7f5-42e6-a27d-df94c7b826b1",
+      "taskId": "0bcb256a-79af-4fc1-bf9e-f323a1c16768"
+    },
+    {
+      "agentId": "a352504f-2551-4e0e-842c-c7c9156c4e50",
+      "createdAt": 1792491965389,
+      "data": {
+        "evidence": {
+          "aborted": true,
+          "head": "7de0b41561663c00228065a2dcaa29221bc882a6",
+          "message": "paused candidate dropped; integrate again after the change is reworked",
+          "status": "pending"
+        },
+        "status": "pending"
+      },
+      "kind": "integration",
+      "revision": 14,
+      "sessionId": "a5dcbc52-e7f5-42e6-a27d-df94c7b826b1",
+      "taskId": "e3834c3e-f2ef-43d5-97c0-49797eb1b709"
+    }
+  ],
+  "interruptedTask": {
+    "acceptance": "project tests pass",
+    "agentId": "a352504f-2551-4e0e-842c-c7c9156c4e50",
+    "baseCommit": "7de0b41561663c00228065a2dcaa29221bc882a6",
+    "coding": true,
+    "commit": null,
+    "contextVersion": 0,
+    "createdBy": null,
+    "dependencies": [],
+    "goal": "crashed before completion",
+    "id": "0bcb256a-79af-4fc1-bf9e-f323a1c16768",
+    "integrationStatus": "pending",
+    "result": null,
+    "sessionId": "a5dcbc52-e7f5-42e6-a27d-df94c7b826b1",
+    "status": "interrupted",
+    "worktree": "/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/.tmp89acrV/state/worktrees/a5dcbc52-e7f5-42e6-a27d-df94c7b826b1/0bcb256a-79af-4fc1-bf9e-f323a1c16768"
+  },
+  "mode": "fixture_app_server_and_simulated_crash_state",
+  "partialWorkPreserved": true,
+  "processGroupStopped": true,
+  "processIds": [
+    57988,
+    58068
+  ],
+  "replayed": false,
+  "sourceClean": true,
+  "verdict": {
+    "ok": true
+  }
+}

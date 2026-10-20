@@ -575,6 +575,8 @@ Continue now: wait for it, review its diff, integrate it when it is coding, and 
             "already integrated"
         );
         let s = self.store.session(&fresh.request.session_id)?;
+        // A rejected attempt must not take ownership of another task's paused candidate.
+        git::clean_integration_head(&s).await?;
         self.store.integration(
             &task.id,
             "checking",
@@ -599,21 +601,29 @@ Continue now: wait for it, review its diff, integrate it when it is coding, and 
         guard.finished = true;
         Ok(result)
     }
-    /// Drop a conflicted candidate so the session can keep integrating.
-    ///
-    /// A conflict is not resolved here: the operator (or the coordinator) decides what the correct
-    /// content is. What this guarantees is that the integration worktree is back on the branch
-    /// head, so the next reviewed task is not blocked by the previous conflict.
+    /// Explicitly drop the latest paused integration, preserving its task commit and result.
     pub async fn abort_integration(&self, task_id: &str) -> Result<Value> {
         let _guard = self.integration.lock().await;
         let fresh = self.store.task(task_id)?;
         ensure!(
-            fresh.integration_status == "conflict",
-            "task is not in an integration conflict"
+            fresh.status == "completed"
+                && fresh.request.coding
+                && matches!(
+                    fresh.integration_status.as_str(),
+                    "conflict" | "failed" | "interrupted"
+                ),
+            "task has no paused integration to abort"
+        );
+        ensure!(
+            self.store
+                .integration_task(&fresh.request.session_id)?
+                .as_deref()
+                == Some(task_id),
+            "integration worktree belongs to another task; inspect the latest integration"
         );
         let s = self.store.session(&fresh.request.session_id)?;
         let head = git::abort_integration(&s).await?;
-        let result = json!({"status":"pending","aborted":true,"head":head,"message":"conflicted candidate dropped; integrate again after the change is reworked"});
+        let result = json!({"status":"pending","aborted":true,"head":head,"message":"paused candidate dropped; integrate again after the change is reworked"});
         self.store.integration(task_id, "pending", &result)?;
         Ok(result)
     }

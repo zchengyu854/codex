@@ -1,0 +1,325 @@
+{
+  "abort": {
+    "aborted": true,
+    "head": "7de0b41561663c00228065a2dcaa29221bc882a6",
+    "message": "paused candidate dropped; integrate again after the change is reworked",
+    "status": "pending"
+  },
+  "events": [
+    {
+      "agentId": null,
+      "createdAt": 1792491964620,
+      "data": {
+        "baseCommit": "7de0b41561663c00228065a2dcaa29221bc882a6"
+      },
+      "kind": "session_created",
+      "revision": 1,
+      "sessionId": "cf5877f8-12a4-465e-829a-5d25a8c17c20",
+      "taskId": null
+    },
+    {
+      "agentId": "b6964cb0-3efd-4fb3-9586-c884ca74c96e",
+      "createdAt": 1792491964621,
+      "data": {
+        "model": "fixture",
+        "protocol": "responses",
+        "role": "worker"
+      },
+      "kind": "agent_configured",
+      "revision": 2,
+      "sessionId": "cf5877f8-12a4-465e-829a-5d25a8c17c20",
+      "taskId": null
+    },
+    {
+      "agentId": "b6964cb0-3efd-4fb3-9586-c884ca74c96e",
+      "createdAt": 1792491964621,
+      "data": {
+        "acceptance": "project tests pass",
+        "dependencies": [],
+        "goal": "break total"
+      },
+      "kind": "task_queued",
+      "revision": 3,
+      "sessionId": "cf5877f8-12a4-465e-829a-5d25a8c17c20",
+      "taskId": "ba3463b5-8580-40e2-9382-b6b8e4152445"
+    },
+    {
+      "agentId": "b6964cb0-3efd-4fb3-9586-c884ca74c96e",
+      "createdAt": 1792491964622,
+      "data": {},
+      "kind": "task_started",
+      "revision": 4,
+      "sessionId": "cf5877f8-12a4-465e-829a-5d25a8c17c20",
+      "taskId": "ba3463b5-8580-40e2-9382-b6b8e4152445"
+    },
+    {
+      "agentId": "b6964cb0-3efd-4fb3-9586-c884ca74c96e",
+      "createdAt": 1792491964756,
+      "data": {
+        "commit": "062a7f3a7df3b63dd4daa263e60d030a867e9f6a",
+        "status": "completed",
+        "summary": "candidate committed"
+      },
+      "kind": "task_finished",
+      "revision": 5,
+      "sessionId": "cf5877f8-12a4-465e-829a-5d25a8c17c20",
+      "taskId": "ba3463b5-8580-40e2-9382-b6b8e4152445"
+    },
+    {
+      "agentId": "b6964cb0-3efd-4fb3-9586-c884ca74c96e",
+      "createdAt": 1792491964797,
+      "data": {
+        "evidence": {
+          "review": "Reviewed exact code and unittest diff; run project validation.",
+          "reviewedCommit": "062a7f3a7df3b63dd4daa263e60d030a867e9f6a"
+        },
+        "status": "checking"
+      },
+      "kind": "integration",
+      "revision": 6,
+      "sessionId": "cf5877f8-12a4-465e-829a-5d25a8c17c20",
+      "taskId": "ba3463b5-8580-40e2-9382-b6b8e4152445"
+    },
+    {
+      "agentId": "b6964cb0-3efd-4fb3-9586-c884ca74c96e",
+      "createdAt": 1792491964928,
+      "data": {
+        "evidence": {
+          "checks": [
+            {
+              "command": [
+                "/usr/bin/python3",
+                "-B",
+                "-m",
+                "unittest",
+                "discover",
+                "-s",
+                "tests",
+                "-v"
+              ],
+              "exitCode": 1,
+              "stderr": "test_empty (test_slug.SlugTests) ... ok\ntest_words (test_slug.SlugTests) ... ok\ntest_empty (test_total.TotalTests) ... ok\ntest_numbers (test_total.TotalTests) ... FAIL\n\n======================================================================\nFAIL: test_numbers (test_total.TotalTests)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/private/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/.tmpBcAsrC/state/worktrees/cf5877f8-12a4-465e-829a-5d25a8c17c20/integration/tests/test_total.py\", line 7, in test_numbers\n    self.assertEqual(total([2, -1, 4]), 5)\nAssertionError: 0 != 5\n\n----------------------------------------------------------------------\nRan 4 tests in 0.000s\n\nFAILED (failures=1)\n",
+              "stdout": "",
+              "success": false
+            }
+          ],
+          "message": "failed candidate preserved in integration worktree; collaboration branch not advanced",
+          "originalHead": "7de0b41561663c00228065a2dcaa29221bc882a6",
+          "status": "failed"
+        },
+        "status": "failed"
+      },
+      "kind": "integration",
+      "revision": 7,
+      "sessionId": "cf5877f8-12a4-465e-829a-5d25a8c17c20",
+      "taskId": "ba3463b5-8580-40e2-9382-b6b8e4152445"
+    },
+    {
+      "agentId": "b6964cb0-3efd-4fb3-9586-c884ca74c96e",
+      "createdAt": 1792491964942,
+      "data": {
+        "acceptance": "project tests pass",
+        "dependencies": [],
+        "goal": "Repair failed task ba3463b5-8580-40e2-9382-b6b8e4152445"
+      },
+      "kind": "task_queued",
+      "revision": 8,
+      "sessionId": "cf5877f8-12a4-465e-829a-5d25a8c17c20",
+      "taskId": "a9467efd-db3b-4366-9b47-c457dfcd6396"
+    },
+    {
+      "agentId": "b6964cb0-3efd-4fb3-9586-c884ca74c96e",
+      "createdAt": 1792491964943,
+      "data": {},
+      "kind": "task_started",
+      "revision": 9,
+      "sessionId": "cf5877f8-12a4-465e-829a-5d25a8c17c20",
+      "taskId": "a9467efd-db3b-4366-9b47-c457dfcd6396"
+    },
+    {
+      "agentId": "b6964cb0-3efd-4fb3-9586-c884ca74c96e",
+      "createdAt": 1792491965080,
+      "data": {
+        "commit": "134480b512599d18471096753329ce6c6d4a33f4",
+        "status": "completed",
+        "summary": "candidate committed"
+      },
+      "kind": "task_finished",
+      "revision": 10,
+      "sessionId": "cf5877f8-12a4-465e-829a-5d25a8c17c20",
+      "taskId": "a9467efd-db3b-4366-9b47-c457dfcd6396"
+    },
+    {
+      "agentId": "b6964cb0-3efd-4fb3-9586-c884ca74c96e",
+      "createdAt": 1792491965219,
+      "data": {
+        "evidence": {
+          "aborted": true,
+          "head": "7de0b41561663c00228065a2dcaa29221bc882a6",
+          "message": "paused candidate dropped; integrate again after the change is reworked",
+          "status": "pending"
+        },
+        "status": "pending"
+      },
+      "kind": "integration",
+      "revision": 11,
+      "sessionId": "cf5877f8-12a4-465e-829a-5d25a8c17c20",
+      "taskId": "ba3463b5-8580-40e2-9382-b6b8e4152445"
+    },
+    {
+      "agentId": "b6964cb0-3efd-4fb3-9586-c884ca74c96e",
+      "createdAt": 1792491965275,
+      "data": {
+        "evidence": {
+          "review": "Reviewed exact code and unittest diff; run project validation.",
+          "reviewedCommit": "134480b512599d18471096753329ce6c6d4a33f4"
+        },
+        "status": "checking"
+      },
+      "kind": "integration",
+      "revision": 12,
+      "sessionId": "cf5877f8-12a4-465e-829a-5d25a8c17c20",
+      "taskId": "a9467efd-db3b-4366-9b47-c457dfcd6396"
+    },
+    {
+      "agentId": "b6964cb0-3efd-4fb3-9586-c884ca74c96e",
+      "createdAt": 1792491965506,
+      "data": {
+        "evidence": {
+          "checks": [
+            {
+              "command": [
+                "/usr/bin/python3",
+                "-B",
+                "-m",
+                "unittest",
+                "discover",
+                "-s",
+                "tests",
+                "-v"
+              ],
+              "exitCode": 0,
+              "stderr": "test_empty (test_slug.SlugTests) ... ok\ntest_words (test_slug.SlugTests) ... ok\ntest_empty (test_total.TotalTests) ... ok\ntest_invalid_number (test_total.TotalTests) ... ok\ntest_numbers (test_total.TotalTests) ... ok\ntest_text_numbers (test_total.TotalTests) ... ok\n\n----------------------------------------------------------------------\nRan 6 tests in 0.000s\n\nOK\n",
+              "stdout": "",
+              "success": true
+            }
+          ],
+          "head": "134480b512599d18471096753329ce6c6d4a33f4",
+          "previousHead": "7de0b41561663c00228065a2dcaa29221bc882a6",
+          "revalidated": true,
+          "status": "integrated",
+          "taskCommit": "134480b512599d18471096753329ce6c6d4a33f4"
+        },
+        "status": "integrated"
+      },
+      "kind": "integration",
+      "revision": 13,
+      "sessionId": "cf5877f8-12a4-465e-829a-5d25a8c17c20",
+      "taskId": "a9467efd-db3b-4366-9b47-c457dfcd6396"
+    }
+  ],
+  "failedTask": {
+    "acceptance": "project tests pass",
+    "agentId": "b6964cb0-3efd-4fb3-9586-c884ca74c96e",
+    "baseCommit": "7de0b41561663c00228065a2dcaa29221bc882a6",
+    "coding": true,
+    "commit": "062a7f3a7df3b63dd4daa263e60d030a867e9f6a",
+    "contextVersion": 0,
+    "createdBy": null,
+    "dependencies": [],
+    "goal": "break total",
+    "id": "ba3463b5-8580-40e2-9382-b6b8e4152445",
+    "integrationStatus": "pending",
+    "result": "candidate committed",
+    "sessionId": "cf5877f8-12a4-465e-829a-5d25a8c17c20",
+    "status": "completed",
+    "worktree": "/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/.tmpBcAsrC/state/worktrees/cf5877f8-12a4-465e-829a-5d25a8c17c20/ba3463b5-8580-40e2-9382-b6b8e4152445"
+  },
+  "failure": {
+    "checks": [
+      {
+        "command": [
+          "/usr/bin/python3",
+          "-B",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "tests",
+          "-v"
+        ],
+        "exitCode": 1,
+        "stderr": "test_empty (test_slug.SlugTests) ... ok\ntest_words (test_slug.SlugTests) ... ok\ntest_empty (test_total.TotalTests) ... ok\ntest_numbers (test_total.TotalTests) ... FAIL\n\n======================================================================\nFAIL: test_numbers (test_total.TotalTests)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/private/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/.tmpBcAsrC/state/worktrees/cf5877f8-12a4-465e-829a-5d25a8c17c20/integration/tests/test_total.py\", line 7, in test_numbers\n    self.assertEqual(total([2, -1, 4]), 5)\nAssertionError: 0 != 5\n\n----------------------------------------------------------------------\nRan 4 tests in 0.000s\n\nFAILED (failures=1)\n",
+        "stdout": "",
+        "success": false
+      }
+    ],
+    "message": "failed candidate preserved in integration worktree; collaboration branch not advanced",
+    "originalHead": "7de0b41561663c00228065a2dcaa29221bc882a6",
+    "status": "failed"
+  },
+  "mode": "local_runtime_and_real_git",
+  "replacementIntegration": {
+    "checks": [
+      {
+        "command": [
+          "/usr/bin/python3",
+          "-B",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "tests",
+          "-v"
+        ],
+        "exitCode": 0,
+        "stderr": "test_empty (test_slug.SlugTests) ... ok\ntest_words (test_slug.SlugTests) ... ok\ntest_empty (test_total.TotalTests) ... ok\ntest_invalid_number (test_total.TotalTests) ... ok\ntest_numbers (test_total.TotalTests) ... ok\ntest_text_numbers (test_total.TotalTests) ... ok\n\n----------------------------------------------------------------------\nRan 6 tests in 0.000s\n\nOK\n",
+        "stdout": "",
+        "success": true
+      }
+    ],
+    "head": "134480b512599d18471096753329ce6c6d4a33f4",
+    "previousHead": "7de0b41561663c00228065a2dcaa29221bc882a6",
+    "revalidated": true,
+    "status": "integrated",
+    "taskCommit": "134480b512599d18471096753329ce6c6d4a33f4"
+  },
+  "replacementTask": {
+    "acceptance": "project tests pass",
+    "agentId": "b6964cb0-3efd-4fb3-9586-c884ca74c96e",
+    "baseCommit": "7de0b41561663c00228065a2dcaa29221bc882a6",
+    "coding": true,
+    "commit": "134480b512599d18471096753329ce6c6d4a33f4",
+    "contextVersion": 0,
+    "createdBy": null,
+    "dependencies": [],
+    "goal": "Repair failed task ba3463b5-8580-40e2-9382-b6b8e4152445",
+    "id": "a9467efd-db3b-4366-9b47-c457dfcd6396",
+    "integrationStatus": "pending",
+    "result": "candidate committed",
+    "sessionId": "cf5877f8-12a4-465e-829a-5d25a8c17c20",
+    "status": "completed",
+    "worktree": "/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/.tmpBcAsrC/state/worktrees/cf5877f8-12a4-465e-829a-5d25a8c17c20/a9467efd-db3b-4366-9b47-c457dfcd6396"
+  },
+  "sourceClean": true,
+  "taskAfterAbort": {
+    "acceptance": "project tests pass",
+    "agentId": "b6964cb0-3efd-4fb3-9586-c884ca74c96e",
+    "baseCommit": "7de0b41561663c00228065a2dcaa29221bc882a6",
+    "coding": true,
+    "commit": "062a7f3a7df3b63dd4daa263e60d030a867e9f6a",
+    "contextVersion": 0,
+    "createdBy": null,
+    "dependencies": [],
+    "goal": "break total",
+    "id": "ba3463b5-8580-40e2-9382-b6b8e4152445",
+    "integrationStatus": "pending",
+    "result": "candidate committed",
+    "sessionId": "cf5877f8-12a4-465e-829a-5d25a8c17c20",
+    "status": "completed",
+    "worktree": "/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/.tmpBcAsrC/state/worktrees/cf5877f8-12a4-465e-829a-5d25a8c17c20/ba3463b5-8580-40e2-9382-b6b8e4152445"
+  },
+  "verdict": {
+    "ok": true
+  }
+}

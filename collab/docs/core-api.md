@@ -33,7 +33,7 @@ cargo run --locked --manifest-path collab/Cargo.toml -- /absolute/path/to/state 
 | task/output | taskId。返回持久化结果摘要和运行中的公开消息草稿。完整结果位于附件事件引用的本地文件。 |
 | task/cancel | taskId。取消该任务及其进程组，不取消其他独立任务。 |
 | task/integrate | taskId、expectedCommit、review。供用户明确要求集成；主 Agent 也可通过协作工具调用。 |
-| task/abortIntegration | taskId。仅对 conflict 任务放弃本次集成，清理集成工作区并退回 pending；保留候选提交与结果，分支头不变。 |
+| task/abortIntegration | taskId。仅对当前集成工作区归属任务的 conflict/failed/interrupted 放弃本次集成，恢复已跟踪内容并退回 pending；保留候选提交与结果，分支头不变。存在 Git 可见的未跟踪文件时先拒绝，需人工核查。 |
 | event/list | sessionId、after（默认 0）、limit（默认 100，最多 1000）。按递增 revision 返回；继续补读时使用最后一项 revision。 |
 | event/publish | sessionId、kind（requirement/user_override/suggestion）、data。用户约束优先于模型决策。 |
 | context/compact | sessionId、summary（最多 8192 字节）、expectedRevision。保留全部审计历史，用检查点替代旧模型决策的活动视图；不丢弃用户约束。 |
@@ -46,7 +46,7 @@ cargo run --locked --manifest-path collab/Cargo.toml -- /absolute/path/to/state 
 
 - 任务状态：queued → running → completed/failed/cancelled；崩溃遗留为 interrupted，失败依赖为 blocked。
 - 编码任务 completed 表示产物已提交，需 integrationStatus=integrated 才能满足下游依赖。
-- 集成状态：pending → checking → integrated/conflict/failed/interrupted。冲突与失败保留集成工作区供人工核查，不自动清理或重复执行；冲突可显式 task/abortIntegration → pending，此操作丢弃集成工作区的手工修改。integration 事件带 agentId、taskId，原因位于 data.evidence.message。
+- 集成状态：pending → checking → integrated/conflict/failed/interrupted。冲突与失败保留集成工作区供人工核查，不自动清理或重复执行；conflict/failed/interrupted 可显式 task/abortIntegration → pending，此操作丢弃集成工作区已跟踪的手工修改；只接受最新集成归属任务，不删除未跟踪产物。脏工作区拒绝的新集成不写入 checking 或改变归属。integration 事件带 agentId、taskId，原因位于 data.evidence.message。
 - contextVersion 表示已成功完成模型请求所消费的共享版本。正在执行的请求使用请求开始时快照，后续请求重新读取共享记录。
 - 每次请求都装配当前权威记录、任务、Agent 名单及最近活动。活动上下文不会因宿主的消费游标而丢失；注入内容并不依赖 App Server 是否把它写回原对话。
 - contextBytes 是保守的 UTF-8 请求字节预算，不等同于供应商 token 上限。超预算明确暂停任务，需压缩记录、提高预算或通过交接摘要新建任务；不静默截掉用户约束。

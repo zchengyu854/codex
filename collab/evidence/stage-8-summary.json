@@ -1,6 +1,6 @@
 {
   "stage": "8",
-  "status": "8-1 complete; 8-2 and 8-3 pending",
+  "status": "8-1 and 8-2 complete locally; 8-3 pending",
   "mode": "local_mock_upstream_real_codex",
   "real_provider_tested": false,
   "baseline_project_tests": 4,
@@ -12,20 +12,34 @@
     "each feature rejects an incorrect implementation",
     "real project tests reject a candidate without advancing the branch"
   ],
+  "recovery": {
+    "failed_candidate_reworked": true,
+    "code_conflict_reworked": true,
+    "cancelled_process_group_stopped": true,
+    "committed_work_preserved_on_restart": true,
+    "crash_recovery_mode": "persisted crash-state simulation",
+    "automatic_replay": false
+  },
   "suite": {
-    "passed": 128,
+    "passed": 133,
     "failed": 0,
     "ignored": 0,
     "clippy": "passed",
-    "format": "passed"
+    "format": "passed",
+    "pty_demo": "passed",
+    "pty_live": "passed"
   },
   "evidence": [
     "stage-8-code.json",
-    "stage-8-tests.log"
+    "stage-8-failure.json",
+    "stage-8-conflict.json",
+    "stage-8-interruption.json",
+    "stage-8-tests.log",
+    "stage-8-demo-screen.txt"
   ],
   "limits": [
     "mock upstream scripts the model decisions; this does not prove real model performance",
-    "code conflict rework and cancellation/restart on this project remain for 8-2",
+    "cancellation uses a fixture App Server; restart uses persisted crash states, not a forced production-host crash",
     "real-provider verification remains for 8-3; no paid calls were made"
   ]
 }

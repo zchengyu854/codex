@@ -141,17 +141,7 @@ pub async fn integrate(s: &Session, t: &Task, cancel: &CancellationToken) -> Res
         .commit
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("missing task commit"))?;
-    let clean = command(&s.integration_path, &["status", "--porcelain"]).await?;
-    ensure!(
-        clean.is_empty(),
-        "integration worktree is dirty; inspect before retrying"
-    );
-    let original = command(&s.integration_path, &["rev-parse", "HEAD"]).await?;
-    let git_dir = command(&s.integration_path, &["rev-parse", "--absolute-git-dir"]).await?;
-    ensure!(
-        !Path::new(&git_dir).join("MERGE_HEAD").exists(),
-        "merge already in progress; resolve explicitly"
-    );
+    let original = clean_integration_head(s).await?;
     if base != task_commit {
         // Squash into the dedicated integration worktree. The collaboration branch only
         // advances after validation succeeds; a conflict is preserved for inspection.
@@ -210,17 +200,37 @@ pub async fn integrate(s: &Session, t: &Task, cancel: &CancellationToken) -> Res
     )
 }
 
-/// Undo the half-applied merge a conflict left in the integration worktree.
-///
-/// `git merge --squash` that fails leaves the index unmerged and the worktree modified, which makes
-/// every later integration refuse with "worktree is dirty". The conflicting content is already in
-/// the integration event, so this restores the branch head and returns it.
+pub async fn clean_integration_head(s: &Session) -> Result<String> {
+    ensure!(
+        command(&s.integration_path, &["status", "--porcelain"])
+            .await?
+            .is_empty(),
+        "integration worktree is dirty; inspect before retrying"
+    );
+    let git_dir = command(&s.integration_path, &["rev-parse", "--absolute-git-dir"]).await?;
+    ensure!(
+        !Path::new(&git_dir).join("MERGE_HEAD").exists(),
+        "merge already in progress; resolve explicitly"
+    );
+    command(&s.integration_path, &["rev-parse", "HEAD"]).await
+}
+
+/// Drop a paused candidate's tracked changes; never delete untracked files.
 pub async fn abort_integration(s: &Session) -> Result<String> {
+    ensure!(
+        command(
+            &s.integration_path,
+            &["ls-files", "--others", "--exclude-standard"]
+        )
+        .await?
+        .is_empty(),
+        "untracked files require inspection before aborting integration"
+    );
     command(&s.integration_path, &["merge", "--abort"])
         .await
         .ok();
     command(&s.integration_path, &["reset", "--hard", "HEAD"]).await?;
-    command(&s.integration_path, &["rev-parse", "HEAD"]).await
+    clean_integration_head(s).await
 }
 
 pub async fn committed_diff(path: &Path, base: &str, commit: &str) -> Result<String> {

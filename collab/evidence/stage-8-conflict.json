@@ -1,0 +1,402 @@
+{
+  "abort": {
+    "aborted": true,
+    "head": "d02b004cb2ef09d4db8a95ec3550924de35fca69",
+    "message": "paused candidate dropped; integrate again after the change is reworked",
+    "status": "pending"
+  },
+  "conflict": {
+    "message": "merge failed; inspect integration worktree before retrying",
+    "originalHead": "d02b004cb2ef09d4db8a95ec3550924de35fca69",
+    "status": "conflict",
+    "taskCommit": "ebd11fee11061f29d0cac20def5ca8ecdf2bb108"
+  },
+  "conflictingTask": {
+    "acceptance": "project tests pass",
+    "agentId": "cbab70eb-a397-48f7-82e5-5685b62ec6ce",
+    "baseCommit": "7de0b41561663c00228065a2dcaa29221bc882a6",
+    "coding": true,
+    "commit": "ebd11fee11061f29d0cac20def5ca8ecdf2bb108",
+    "contextVersion": 0,
+    "createdBy": null,
+    "dependencies": [],
+    "goal": "alternative whitespace implementation",
+    "id": "0d792ae8-4c7e-4d7d-8818-6cf58617ac92",
+    "integrationStatus": "pending",
+    "result": "candidate committed",
+    "sessionId": "567a20a5-fb3a-4b28-be76-0d8ec77453da",
+    "status": "completed",
+    "worktree": "/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/.tmpWrYp4H/state/worktrees/567a20a5-fb3a-4b28-be76-0d8ec77453da/0d792ae8-4c7e-4d7d-8818-6cf58617ac92"
+  },
+  "events": [
+    {
+      "agentId": null,
+      "createdAt": 1792491964620,
+      "data": {
+        "baseCommit": "7de0b41561663c00228065a2dcaa29221bc882a6"
+      },
+      "kind": "session_created",
+      "revision": 1,
+      "sessionId": "567a20a5-fb3a-4b28-be76-0d8ec77453da",
+      "taskId": null
+    },
+    {
+      "agentId": "cbab70eb-a397-48f7-82e5-5685b62ec6ce",
+      "createdAt": 1792491964621,
+      "data": {
+        "model": "fixture",
+        "protocol": "responses",
+        "role": "worker"
+      },
+      "kind": "agent_configured",
+      "revision": 2,
+      "sessionId": "567a20a5-fb3a-4b28-be76-0d8ec77453da",
+      "taskId": null
+    },
+    {
+      "agentId": "cbab70eb-a397-48f7-82e5-5685b62ec6ce",
+      "createdAt": 1792491964621,
+      "data": {
+        "acceptance": "project tests pass",
+        "dependencies": [],
+        "goal": "normalize whitespace"
+      },
+      "kind": "task_queued",
+      "revision": 3,
+      "sessionId": "567a20a5-fb3a-4b28-be76-0d8ec77453da",
+      "taskId": "7e36cf72-119a-460a-ad90-ae4b3d5d0bda"
+    },
+    {
+      "agentId": "cbab70eb-a397-48f7-82e5-5685b62ec6ce",
+      "createdAt": 1792491964622,
+      "data": {},
+      "kind": "task_started",
+      "revision": 4,
+      "sessionId": "567a20a5-fb3a-4b28-be76-0d8ec77453da",
+      "taskId": "7e36cf72-119a-460a-ad90-ae4b3d5d0bda"
+    },
+    {
+      "agentId": "cbab70eb-a397-48f7-82e5-5685b62ec6ce",
+      "createdAt": 1792491964756,
+      "data": {
+        "commit": "fecd93a3d7f8d2ba548964b9c1abbe3dbfd6476a",
+        "status": "completed",
+        "summary": "candidate committed"
+      },
+      "kind": "task_finished",
+      "revision": 5,
+      "sessionId": "567a20a5-fb3a-4b28-be76-0d8ec77453da",
+      "taskId": "7e36cf72-119a-460a-ad90-ae4b3d5d0bda"
+    },
+    {
+      "agentId": "cbab70eb-a397-48f7-82e5-5685b62ec6ce",
+      "createdAt": 1792491964756,
+      "data": {
+        "acceptance": "project tests pass",
+        "dependencies": [],
+        "goal": "alternative whitespace implementation"
+      },
+      "kind": "task_queued",
+      "revision": 6,
+      "sessionId": "567a20a5-fb3a-4b28-be76-0d8ec77453da",
+      "taskId": "0d792ae8-4c7e-4d7d-8818-6cf58617ac92"
+    },
+    {
+      "agentId": "cbab70eb-a397-48f7-82e5-5685b62ec6ce",
+      "createdAt": 1792491964757,
+      "data": {},
+      "kind": "task_started",
+      "revision": 7,
+      "sessionId": "567a20a5-fb3a-4b28-be76-0d8ec77453da",
+      "taskId": "0d792ae8-4c7e-4d7d-8818-6cf58617ac92"
+    },
+    {
+      "agentId": "cbab70eb-a397-48f7-82e5-5685b62ec6ce",
+      "createdAt": 1792491964874,
+      "data": {
+        "commit": "ebd11fee11061f29d0cac20def5ca8ecdf2bb108",
+        "status": "completed",
+        "summary": "candidate committed"
+      },
+      "kind": "task_finished",
+      "revision": 8,
+      "sessionId": "567a20a5-fb3a-4b28-be76-0d8ec77453da",
+      "taskId": "0d792ae8-4c7e-4d7d-8818-6cf58617ac92"
+    },
+    {
+      "agentId": "cbab70eb-a397-48f7-82e5-5685b62ec6ce",
+      "createdAt": 1792491964920,
+      "data": {
+        "evidence": {
+          "review": "Reviewed exact code and unittest diff; run project validation.",
+          "reviewedCommit": "fecd93a3d7f8d2ba548964b9c1abbe3dbfd6476a"
+        },
+        "status": "checking"
+      },
+      "kind": "integration",
+      "revision": 9,
+      "sessionId": "567a20a5-fb3a-4b28-be76-0d8ec77453da",
+      "taskId": "7e36cf72-119a-460a-ad90-ae4b3d5d0bda"
+    },
+    {
+      "agentId": "cbab70eb-a397-48f7-82e5-5685b62ec6ce",
+      "createdAt": 1792491965194,
+      "data": {
+        "evidence": {
+          "checks": [
+            {
+              "command": [
+                "/usr/bin/python3",
+                "-B",
+                "-m",
+                "unittest",
+                "discover",
+                "-s",
+                "tests",
+                "-v"
+              ],
+              "exitCode": 0,
+              "stderr": "test_empty (test_slug.SlugTests) ... ok\ntest_repeated_whitespace (test_slug.SlugTests) ... ok\ntest_unicode (test_slug.SlugTests) ... ok\ntest_words (test_slug.SlugTests) ... ok\ntest_empty (test_total.TotalTests) ... ok\ntest_numbers (test_total.TotalTests) ... ok\n\n----------------------------------------------------------------------\nRan 6 tests in 0.000s\n\nOK\n",
+              "stdout": "",
+              "success": true
+            }
+          ],
+          "head": "d02b004cb2ef09d4db8a95ec3550924de35fca69",
+          "previousHead": "7de0b41561663c00228065a2dcaa29221bc882a6",
+          "revalidated": true,
+          "status": "integrated",
+          "taskCommit": "fecd93a3d7f8d2ba548964b9c1abbe3dbfd6476a"
+        },
+        "status": "integrated"
+      },
+      "kind": "integration",
+      "revision": 10,
+      "sessionId": "567a20a5-fb3a-4b28-be76-0d8ec77453da",
+      "taskId": "7e36cf72-119a-460a-ad90-ae4b3d5d0bda"
+    },
+    {
+      "agentId": "cbab70eb-a397-48f7-82e5-5685b62ec6ce",
+      "createdAt": 1792491965239,
+      "data": {
+        "evidence": {
+          "review": "Reviewed exact code and unittest diff; run project validation.",
+          "reviewedCommit": "ebd11fee11061f29d0cac20def5ca8ecdf2bb108"
+        },
+        "status": "checking"
+      },
+      "kind": "integration",
+      "revision": 11,
+      "sessionId": "567a20a5-fb3a-4b28-be76-0d8ec77453da",
+      "taskId": "0d792ae8-4c7e-4d7d-8818-6cf58617ac92"
+    },
+    {
+      "agentId": "cbab70eb-a397-48f7-82e5-5685b62ec6ce",
+      "createdAt": 1792491965307,
+      "data": {
+        "evidence": {
+          "message": "merge failed; inspect integration worktree before retrying",
+          "originalHead": "d02b004cb2ef09d4db8a95ec3550924de35fca69",
+          "status": "conflict",
+          "taskCommit": "ebd11fee11061f29d0cac20def5ca8ecdf2bb108"
+        },
+        "status": "conflict"
+      },
+      "kind": "integration",
+      "revision": 12,
+      "sessionId": "567a20a5-fb3a-4b28-be76-0d8ec77453da",
+      "taskId": "0d792ae8-4c7e-4d7d-8818-6cf58617ac92"
+    },
+    {
+      "agentId": "cbab70eb-a397-48f7-82e5-5685b62ec6ce",
+      "createdAt": 1792491965423,
+      "data": {
+        "evidence": {
+          "aborted": true,
+          "head": "d02b004cb2ef09d4db8a95ec3550924de35fca69",
+          "message": "paused candidate dropped; integrate again after the change is reworked",
+          "status": "pending"
+        },
+        "status": "pending"
+      },
+      "kind": "integration",
+      "revision": 13,
+      "sessionId": "567a20a5-fb3a-4b28-be76-0d8ec77453da",
+      "taskId": "0d792ae8-4c7e-4d7d-8818-6cf58617ac92"
+    },
+    {
+      "agentId": "cbab70eb-a397-48f7-82e5-5685b62ec6ce",
+      "createdAt": 1792491965438,
+      "data": {
+        "acceptance": "project tests pass",
+        "dependencies": [],
+        "goal": "Rework conflicting task 0d792ae8-4c7e-4d7d-8818-6cf58617ac92"
+      },
+      "kind": "task_queued",
+      "revision": 14,
+      "sessionId": "567a20a5-fb3a-4b28-be76-0d8ec77453da",
+      "taskId": "019c0d02-e6f6-4ff2-91be-679bed045586"
+    },
+    {
+      "agentId": "cbab70eb-a397-48f7-82e5-5685b62ec6ce",
+      "createdAt": 1792491965438,
+      "data": {},
+      "kind": "task_started",
+      "revision": 15,
+      "sessionId": "567a20a5-fb3a-4b28-be76-0d8ec77453da",
+      "taskId": "019c0d02-e6f6-4ff2-91be-679bed045586"
+    },
+    {
+      "agentId": "cbab70eb-a397-48f7-82e5-5685b62ec6ce",
+      "createdAt": 1792491965561,
+      "data": {
+        "commit": "fa5a7c3ff3a21c7ad22db364692b967a1f94955c",
+        "status": "completed",
+        "summary": "candidate committed"
+      },
+      "kind": "task_finished",
+      "revision": 16,
+      "sessionId": "567a20a5-fb3a-4b28-be76-0d8ec77453da",
+      "taskId": "019c0d02-e6f6-4ff2-91be-679bed045586"
+    },
+    {
+      "agentId": "cbab70eb-a397-48f7-82e5-5685b62ec6ce",
+      "createdAt": 1792491965602,
+      "data": {
+        "evidence": {
+          "review": "Reviewed exact code and unittest diff; run project validation.",
+          "reviewedCommit": "fa5a7c3ff3a21c7ad22db364692b967a1f94955c"
+        },
+        "status": "checking"
+      },
+      "kind": "integration",
+      "revision": 17,
+      "sessionId": "567a20a5-fb3a-4b28-be76-0d8ec77453da",
+      "taskId": "019c0d02-e6f6-4ff2-91be-679bed045586"
+    },
+    {
+      "agentId": "cbab70eb-a397-48f7-82e5-5685b62ec6ce",
+      "createdAt": 1792491965833,
+      "data": {
+        "evidence": {
+          "checks": [
+            {
+              "command": [
+                "/usr/bin/python3",
+                "-B",
+                "-m",
+                "unittest",
+                "discover",
+                "-s",
+                "tests",
+                "-v"
+              ],
+              "exitCode": 0,
+              "stderr": "test_casefold (test_slug.SlugTests) ... ok\ntest_empty (test_slug.SlugTests) ... ok\ntest_repeated_whitespace (test_slug.SlugTests) ... ok\ntest_unicode (test_slug.SlugTests) ... ok\ntest_words (test_slug.SlugTests) ... ok\ntest_empty (test_total.TotalTests) ... ok\ntest_numbers (test_total.TotalTests) ... ok\n\n----------------------------------------------------------------------\nRan 7 tests in 0.000s\n\nOK\n",
+              "stdout": "",
+              "success": true
+            }
+          ],
+          "head": "fa5a7c3ff3a21c7ad22db364692b967a1f94955c",
+          "previousHead": "d02b004cb2ef09d4db8a95ec3550924de35fca69",
+          "revalidated": true,
+          "status": "integrated",
+          "taskCommit": "fa5a7c3ff3a21c7ad22db364692b967a1f94955c"
+        },
+        "status": "integrated"
+      },
+      "kind": "integration",
+      "revision": 18,
+      "sessionId": "567a20a5-fb3a-4b28-be76-0d8ec77453da",
+      "taskId": "019c0d02-e6f6-4ff2-91be-679bed045586"
+    }
+  ],
+  "firstIntegration": {
+    "checks": [
+      {
+        "command": [
+          "/usr/bin/python3",
+          "-B",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "tests",
+          "-v"
+        ],
+        "exitCode": 0,
+        "stderr": "test_empty (test_slug.SlugTests) ... ok\ntest_repeated_whitespace (test_slug.SlugTests) ... ok\ntest_unicode (test_slug.SlugTests) ... ok\ntest_words (test_slug.SlugTests) ... ok\ntest_empty (test_total.TotalTests) ... ok\ntest_numbers (test_total.TotalTests) ... ok\n\n----------------------------------------------------------------------\nRan 6 tests in 0.000s\n\nOK\n",
+        "stdout": "",
+        "success": true
+      }
+    ],
+    "head": "d02b004cb2ef09d4db8a95ec3550924de35fca69",
+    "previousHead": "7de0b41561663c00228065a2dcaa29221bc882a6",
+    "revalidated": true,
+    "status": "integrated",
+    "taskCommit": "fecd93a3d7f8d2ba548964b9c1abbe3dbfd6476a"
+  },
+  "firstTask": {
+    "acceptance": "project tests pass",
+    "agentId": "cbab70eb-a397-48f7-82e5-5685b62ec6ce",
+    "baseCommit": "7de0b41561663c00228065a2dcaa29221bc882a6",
+    "coding": true,
+    "commit": "fecd93a3d7f8d2ba548964b9c1abbe3dbfd6476a",
+    "contextVersion": 0,
+    "createdBy": null,
+    "dependencies": [],
+    "goal": "normalize whitespace",
+    "id": "7e36cf72-119a-460a-ad90-ae4b3d5d0bda",
+    "integrationStatus": "pending",
+    "result": "candidate committed",
+    "sessionId": "567a20a5-fb3a-4b28-be76-0d8ec77453da",
+    "status": "completed",
+    "worktree": "/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/.tmpWrYp4H/state/worktrees/567a20a5-fb3a-4b28-be76-0d8ec77453da/7e36cf72-119a-460a-ad90-ae4b3d5d0bda"
+  },
+  "mode": "local_runtime_and_real_git",
+  "reworkIntegration": {
+    "checks": [
+      {
+        "command": [
+          "/usr/bin/python3",
+          "-B",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "tests",
+          "-v"
+        ],
+        "exitCode": 0,
+        "stderr": "test_casefold (test_slug.SlugTests) ... ok\ntest_empty (test_slug.SlugTests) ... ok\ntest_repeated_whitespace (test_slug.SlugTests) ... ok\ntest_unicode (test_slug.SlugTests) ... ok\ntest_words (test_slug.SlugTests) ... ok\ntest_empty (test_total.TotalTests) ... ok\ntest_numbers (test_total.TotalTests) ... ok\n\n----------------------------------------------------------------------\nRan 7 tests in 0.000s\n\nOK\n",
+        "stdout": "",
+        "success": true
+      }
+    ],
+    "head": "fa5a7c3ff3a21c7ad22db364692b967a1f94955c",
+    "previousHead": "d02b004cb2ef09d4db8a95ec3550924de35fca69",
+    "revalidated": true,
+    "status": "integrated",
+    "taskCommit": "fa5a7c3ff3a21c7ad22db364692b967a1f94955c"
+  },
+  "reworkTask": {
+    "acceptance": "project tests pass",
+    "agentId": "cbab70eb-a397-48f7-82e5-5685b62ec6ce",
+    "baseCommit": "d02b004cb2ef09d4db8a95ec3550924de35fca69",
+    "coding": true,
+    "commit": "fa5a7c3ff3a21c7ad22db364692b967a1f94955c",
+    "contextVersion": 0,
+    "createdBy": null,
+    "dependencies": [],
+    "goal": "Rework conflicting task 0d792ae8-4c7e-4d7d-8818-6cf58617ac92",
+    "id": "019c0d02-e6f6-4ff2-91be-679bed045586",
+    "integrationStatus": "pending",
+    "result": "candidate committed",
+    "sessionId": "567a20a5-fb3a-4b28-be76-0d8ec77453da",
+    "status": "completed",
+    "worktree": "/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/.tmpWrYp4H/state/worktrees/567a20a5-fb3a-4b28-be76-0d8ec77453da/019c0d02-e6f6-4ff2-91be-679bed045586"
+  },
+  "sourceClean": true,
+  "verdict": {
+    "ok": true
+  }
+}

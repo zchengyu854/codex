@@ -1,6 +1,6 @@
 # Codex 多模型协作终端
 
-基于 Codex 的独立扩展项目，与 RoboPi 分开。上游提交固定于 `upstream.json`，开发分支为 `codex/multi-model-desktop`。目前完成源码/接口验证、Rust 协作核心、终端壳层演示、终端接入协作后台的四个段落（真实会话/Agent/任务显示、公开文本流、操作审批与密钥提交、编码开关与差异审查集成、会话创建与上下文压缩）、阶段 5 的五段（Agent 配置、连接自检、用户约束、任务结果查看、输入行光标编辑与命令历史），阶段 6 的四段（任务编排：目标/验收标准/依赖/编码；会话列表与切换；任务详情与差异高亮；真实服务商与 Keychain 验证），以及阶段 7（真实多 Agent 派发与依赖门；宿主兜底与提交归属；并发、冲突与队列卫生；证据汇总，按实测暂缓可选审批策略）。现已进一步完成阶段 8-1 的本地代码项目协作验收。界面为单终端多窗格。
+基于 Codex 的独立扩展项目，与 RoboPi 分开。上游提交固定于 `upstream.json`，开发分支为 `codex/multi-model-desktop`。目前完成源码/接口验证、Rust 协作核心、终端壳层演示、终端接入协作后台的四个段落（真实会话/Agent/任务显示、公开文本流、操作审批与密钥提交、编码开关与差异审查集成、会话创建与上下文压缩）、阶段 5 的五段（Agent 配置、连接自检、用户约束、任务结果查看、输入行光标编辑与命令历史），阶段 6 的四段（任务编排：目标/验收标准/依赖/编码；会话列表与切换；任务详情与差异高亮；真实服务商与 Keychain 验证），以及阶段 7（真实多 Agent 派发与依赖门；宿主兜底与提交归属；并发、冲突与队列卫生；证据汇总，按实测暂缓可选审批策略）。现已进一步完成阶段 8-1、8-2 的本地代码项目协作与恢复验收。界面为单终端多窗格。
 
 - [后续开发计划：阶段 8–11、优先级与验收标准](docs/development-roadmap.md)
 - [第 1 阶段：基线与接口验证](docs/stage-1.md)
@@ -10,7 +10,7 @@
 - [阶段 5：补齐终端契约覆盖](docs/stage-5-coverage.md)
 - [阶段 6：参数可达与真实验证（6-1 至 6-4 已实现并验证）](docs/stage-6-plan.md)
 - [阶段 7：真实多 Agent 协作（已收尾，含验证范围与限制）](docs/stage-7-plan.md)
-- [阶段 8：代码项目验收（8-1 本地通过，失败恢复与真实模型验收待续）](docs/stage-8-plan.md)
+- [阶段 8：代码项目验收（8-1、8-2 本地通过，真实模型验收待续）](docs/stage-8-plan.md)
 - [后台接口与行为约定](docs/core-api.md)
 
 ## 当前能力
@@ -37,7 +37,7 @@ cargo run  --locked --manifest-path collab/Cargo.toml -p codex-collab-tui -- \
   --state /absolute/path/to/state --session <会话 ID>
 ```
 
-`--demo` 与实时模式二选一；未指定 `--session` 时使用第一个会话，没有任何会话且给出 `--repository` 时按其创建（需至少一条 `--validation`），否则弹出创建表单。输入行支持光标编辑与命令历史（`←`/`→` 移动光标、`Home`/`End` 行首行尾、`Backspace`/`Delete` 删除、`Up`/`Down` 回看本窗格已派发的输入）。Enter 派发任务（验收标准留空、无依赖）、Ctrl+F 打开任务编辑器（多行目标与验收标准、依赖勾选、编码开关；`Enter` 换行，`Ctrl+S` 派发，验收标准必填）、Ctrl+L 打开会话列表（↑/↓ 选择、Enter 切换，切换后窗格/任务/共享记录/命令历史整体重载）、Ctrl+D 查看当前任务详情（状态/上下文版本/工作区/基线/候选提交/集成状态/依赖/阻塞原因/结果摘要，PgUp/PgDn 滚动）、Ctrl+C 取消、Ctrl+R 刷新、Ctrl+A 配置 Agent（角色由窗格位置决定，`agent/configure`）、Ctrl+T 连接自检（`agent/testConnection`，会真实调用模型）、Ctrl+U 发布用户约束（`event/publish`，需求/用户覆盖优先于模型决策）、Ctrl+O 查看任务输出（`task/output`，持久化摘要 + 运行中公开草稿 + 只读附件）、Ctrl+K 设置密钥、Ctrl+E 切换编码任务、Ctrl+G 审查并集成（冲突任务再次按下则放弃本次集成、保留候选提交）、Ctrl+P 压缩上下文、Ctrl+N 新建会话、F3 共享记录；待审操作会弹出审批模态（Y 批准 / N 拒绝）。详见阶段 4、5 与阶段 6 文档。
+`--demo` 与实时模式二选一；未指定 `--session` 时使用第一个会话，没有任何会话且给出 `--repository` 时按其创建（需至少一条 `--validation`），否则弹出创建表单。输入行支持光标编辑与命令历史（`←`/`→` 移动光标、`Home`/`End` 行首行尾、`Backspace`/`Delete` 删除、`Up`/`Down` 回看本窗格已派发的输入）。Enter 派发任务（验收标准留空、无依赖）、Ctrl+F 打开任务编辑器（多行目标与验收标准、依赖勾选、编码开关；`Enter` 换行，`Ctrl+S` 派发，验收标准必填）、Ctrl+L 打开会话列表（↑/↓ 选择、Enter 切换，切换后窗格/任务/共享记录/命令历史整体重载）、Ctrl+D 查看当前任务详情（状态/上下文版本/工作区/基线/候选提交/集成状态/依赖/阻塞原因/结果摘要，PgUp/PgDn 滚动）、Ctrl+C 取消、Ctrl+R 刷新、Ctrl+A 配置 Agent（角色由窗格位置决定，`agent/configure`）、Ctrl+T 连接自检（`agent/testConnection`，会真实调用模型）、Ctrl+U 发布用户约束（`event/publish`，需求/用户覆盖优先于模型决策）、Ctrl+O 查看任务输出（`task/output`，持久化摘要 + 运行中公开草稿 + 只读附件）、Ctrl+K 设置密钥、Ctrl+E 切换编码任务、Ctrl+G 审查并集成（冲突/验证失败/中断的集成任务再次按下则显式放弃本次集成、保留候选提交；仅接受当前归属任务，先核查工作区）、Ctrl+P 压缩上下文、Ctrl+N 新建会话、F3 共享记录；待审操作会弹出审批模态（Y 批准 / N 拒绝）。详见阶段 4、5 与阶段 6 文档。
 
 ## 运行后台
 
@@ -64,7 +64,7 @@ python3 collab/scripts/stage6_errors.py collab/target/debug/codex-collab-core
                                     # 6-4 失败矩阵（地址规则、Keychain 临时账户、401/429/传输/缺凭证），全程回环
 STATE=<状态目录> SESSION=<会话 id> collab/scripts/stage6_real_evidence.sh --reuse
                                     # 6-4 真实调用：去掉 --reuse 才会访问服务商并计费，且需先在 TUI 里 Ctrl+K 写入密钥
-collab/scripts/stage8_evidence.sh   # 阶段 8-1：真实 Codex + 回环模拟 API，代码项目测试与汇总；不调用付费模型
+collab/scripts/stage8_evidence.sh   # 阶段 8-1/8-2：本地协作、失败/冲突返工、取消/重启、双探针；不调用付费模型
 collab/scripts/stage7_evidence.sh   # 阶段 7：测试、lint、双探针与 demo 快照
 STATE=<状态目录> SESSION=<会话 id> collab/scripts/stage7_real_evidence.sh --reuse
                                     # 7 真实多 Agent：去掉 --reuse 才派发任务并计费

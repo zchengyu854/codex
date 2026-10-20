@@ -380,6 +380,14 @@ impl Store {
         tx.commit()?;
         Ok(())
     }
+    pub fn integration_task(&self, session: &str) -> Result<Option<String>> {
+        let c = self.db.lock().unwrap();
+        Ok(c.query_row(
+            "SELECT task FROM events WHERE session=? AND kind='integration' ORDER BY revision DESC LIMIT 1",
+            [session],
+            |r| r.get(0),
+        ).optional()?)
+    }
     pub fn recover(&self) -> Result<usize> {
         let mut c = self.db.lock().unwrap();
         let tx = c.transaction()?;

@@ -354,7 +354,7 @@ impl Store {
         ensure!(
             matches!(
                 status,
-                "checking" | "integrated" | "conflict" | "failed" | "interrupted"
+                "checking" | "integrated" | "conflict" | "failed" | "interrupted" | "pending"
             ),
             "invalid integration state"
         );
@@ -372,7 +372,7 @@ impl Store {
         append(
             &tx,
             &t.request.session_id,
-            None,
+            Some(&t.request.agent_id),
             Some(id),
             "integration",
             &json!({"status":status,"evidence":evidence}),

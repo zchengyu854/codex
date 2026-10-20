@@ -157,7 +157,8 @@ async fn handle(State(s): State<Arc<GatewayState>>, headers: HeaderMap, body: By
     let url = format!("{}/{path}", s.agent.base_url.trim_end_matches('/'));
     let upstream_body = chat.as_ref().map(|c| &c.body).unwrap_or(&request);
     let mut upstream = None;
-    for attempt in 0..3 {
+    // Shared credentials make concurrent agents hit provider limits; give 429 a longer backoff.
+    for (attempt, limit_wait) in [5, 15, 30, 0].into_iter().enumerate() {
         let sent = tokio::select! {_=s.cancel.cancelled()=>return error(StatusCode::CONFLICT,"task cancelled"), r=tokio::time::timeout(Duration::from_secs(90),s.client.post(&url).bearer_auth(s.upstream.expose()).json(upstream_body).send())=>r};
         match sent {
             Ok(Ok(response)) => {
@@ -166,8 +167,26 @@ async fn handle(State(s): State<Arc<GatewayState>>, headers: HeaderMap, body: By
                     upstream = Some(response);
                     break;
                 }
-                if (status.as_u16() == 429 || status.is_server_error()) && attempt < 2 {
-                    tokio::select! {_=s.cancel.cancelled()=>return error(StatusCode::CONFLICT,"task cancelled"),_=tokio::time::sleep(Duration::from_millis(250*(1<<attempt)))=>{}}
+                let limited = status.as_u16() == 429;
+                if limited || (status.is_server_error() && attempt < 2) {
+                    if limited && attempt == 3 {
+                        return error(
+                            StatusCode::TOO_MANY_REQUESTS,
+                            "upstream rate limit exceeded after bounded retries",
+                        );
+                    }
+                    let after = response
+                        .headers()
+                        .get("retry-after")
+                        .and_then(|v| v.to_str().ok())
+                        .and_then(|v| v.trim().parse::<u64>().ok());
+                    let default = if limited {
+                        limit_wait
+                    } else {
+                        2u64.pow(attempt as u32 + 1)
+                    };
+                    let wait = Duration::from_secs(after.unwrap_or(default).min(60));
+                    tokio::select! {_=s.cancel.cancelled()=>return error(StatusCode::CONFLICT,"task cancelled"),_=tokio::time::sleep(wait)=>{}}
                     continue;
                 }
                 return error(

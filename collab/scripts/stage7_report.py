@@ -144,9 +144,104 @@ def retry(run):
     add("每次续跑写进主控窗格与任务详情（宿主兜底一行），最后的未完成标记还会进共享记录。")
 
 
+def conflict(run):
+    """Render the concurrency/conflict run: who overlapped, what conflicted, what the drop did."""
+    add = print
+    add("## 环境")
+    add(f"状态目录 {run['state']}")
+    add(f"会话     {run['session']}")
+    for agent_id, agent in run["agents"].items():
+        add(
+            f"Agent    {short(agent_id)} · {agent['role']:<11} {agent['model']} · "
+            f"{agent['protocol']} · 预算 {agent['contextBytes']} 字节"
+        )
+    add("")
+    add("## 场景：种子、两个同基线冲突编辑、放弃后的恢复任务")
+    add("种子任务先建文件并集成；两个 worker 从同一基线修改同一行，依次集成以触发冲突；放弃后再派发另一个行的编辑。")
+    if "watchStart" in run:
+        add(f"错峰派发 {run['stagger']}s；派发偏移 {run['dispatch']}；并发观察从 {run['watchStart']}s 开始。")
+    add("每次轮询的时间线单独从 0 计时；并发窗口只计算两个冲突编辑的观察区间。")
+    add("")
+    add("时间线（只列本轮任务）：")
+    for entry in run["timeline"]:
+        add(
+            f"  {entry['at']:>7.1f}s  {entry['task']}  {entry.get('agent', '?')}  "
+            f"{entry['status']:<10} {entry.get('integrationStatus') or '—'}"
+        )
+    add("")
+    spans = run["concurrency"]["spans"]
+    add("并发窗口：")
+    for task, (start, end) in sorted(spans.items(), key=lambda item: item[1][0]):
+        add(f"  {task}  {start:.1f}s → {end:.1f}s")
+    add(f"至少两个任务真正重叠：{'是' if run['concurrency']['overlapped'] else '否'}")
+    add("")
+    add("任务：")
+    for task_id, task in run["tasks"].items():
+        add(
+            f"  {task_id[:8]} · {short(task['agentId'])} · {task['status']} · "
+            f"集成 {task['integrationStatus']} · 提交 {(task.get('commit') or '—')[:8]}"
+        )
+        add(f"    目标 {clip(task['goal'], 120)}")
+        add(f"    自述 {clip(task['result'], 160)}")
+    add("")
+    add("## 集成（与 TUI 的 Ctrl+G 同一条宿主路径）")
+    seed = run["seedIntegration"]
+    add(
+        f"  种子 · {seed['status']} · {str(seed.get('previousHead'))[:8]} → {str(seed.get('head'))[:8]}"
+    )
+    for item in run.get("integrations") or []:
+        add(
+            f"  编辑 · {item['status']} · {str(item.get('previousHead'))[:8]} → {str(item.get('head'))[:8]}"
+        )
+    bad = run.get("conflict") or {}
+    add(
+        f"  同一行 · {bad.get('status')} · 分支未前进（{str(bad.get('originalHead'))[:8]}）"
+    )
+    add("")
+    add("## 冲突与放弃")
+    add(f"冲突时工作区有未合并内容：{'是' if run.get('worktreeDirtyDuringConflict') else '否'}")
+    abort = run.get("abort") or {}
+    add(
+        f"task/abortIntegration → {abort.get('status')} · 分支 {str(run.get('headDuringConflict'))[:8]} → "
+        f"{str(run.get('headAfterAbort'))[:8]} · 工作区仍有改动："
+        f"{'是' if run.get('worktreeDirtyAfterAbort') else '否'}"
+    )
+    after = run.get("taskAfterAbort") or {}
+    add(f"任务状态回到 {after.get('integrationStatus')}（自述与提交保留，可返工后重新审查）")
+    add("")
+    add("## 分支内容")
+    content = run["content"]
+    add(f"  文件内容 {content.get('integration')!r}")
+    add(f"原始仓库未被改动：{'是' if content.get('sourceClean') else '否'}")
+    add(f"最近提交：{content.get('log')}")
+    approvals = run.get("approvals") or []
+    add(f"审批 {len(approvals)} 条")
+    for approval in approvals:
+        add(f"  - {approval['params'].get('command')}")
+    add("")
+    add("## 结论")
+    verdict = run["verdict"]
+    if verdict["ok"]:
+        add("通过：两个任务的 running 区间重叠；同一行的第二个编辑进入冲突，分支未前进；")
+        add("放弃候选后工作区恢复、任务回到未集成，源仓库全程干净。")
+    else:
+        add("未通过：" + "；".join(verdict["problems"]))
+    add("")
+    if len(run.get("integrations") or []) > 1:
+        add("放弃后的恢复任务也已集成。")
+    else:
+        add("放弃后的恢复任务未在本次真实运行中完成；后续集成能力另见 git 回归测试。")
+    for limitation in run.get("environment") or []:
+        add(f"环境限制：{limitation}")
+    add("说明：冲突不自动解决，也不覆盖分支；宿主只负责把候选退回可重试状态。")
+
+
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "retry":
         retry(load(sys.argv[2]))
+        return
+    if len(sys.argv) > 1 and sys.argv[1] == "conflict":
+        conflict(load(sys.argv[2]))
         return
     main_run = load(sys.argv[1])
     first = load(sys.argv[2])

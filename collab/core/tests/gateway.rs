@@ -35,8 +35,11 @@ async fn mock(
         )
         .is_ok()
     {
+        // A real provider counts the limit per credential; `Retry-After: 0` keeps the suite fast
+        // while still taking the honour-the-header path.
         return (
             StatusCode::TOO_MANY_REQUESTS,
+            [("retry-after", "0")],
             "secret-upstream-key in provider error",
         )
             .into_response();
@@ -192,6 +195,7 @@ async fn both_protocols_inject_current_records_every_model_request() {
 }
 #[tokio::test]
 async fn local_auth_rejects_cross_agent_access_and_bounded_retry() {
+    let started = std::time::Instant::now();
     let mock = Arc::new(Mock::default());
     mock.failures.store(2, std::sync::atomic::Ordering::SeqCst);
     let (url, server) = upstream(mock.clone()).await;
@@ -230,6 +234,11 @@ async fn local_auth_rejects_cross_agent_access_and_bounded_retry() {
             .await
             .unwrap()
             .contains("response.completed")
+    );
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(5),
+        "Retry-After was ignored: {:?}",
+        started.elapsed()
     );
     assert_eq!(mock.bodies.lock().unwrap().len(), 3);
     server.abort();

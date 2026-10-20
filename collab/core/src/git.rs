@@ -210,6 +210,19 @@ pub async fn integrate(s: &Session, t: &Task, cancel: &CancellationToken) -> Res
     )
 }
 
+/// Undo the half-applied merge a conflict left in the integration worktree.
+///
+/// `git merge --squash` that fails leaves the index unmerged and the worktree modified, which makes
+/// every later integration refuse with "worktree is dirty". The conflicting content is already in
+/// the integration event, so this restores the branch head and returns it.
+pub async fn abort_integration(s: &Session) -> Result<String> {
+    command(&s.integration_path, &["merge", "--abort"])
+        .await
+        .ok();
+    command(&s.integration_path, &["reset", "--hard", "HEAD"]).await?;
+    command(&s.integration_path, &["rev-parse", "HEAD"]).await
+}
+
 pub async fn committed_diff(path: &Path, base: &str, commit: &str) -> Result<String> {
     command(
         path,

@@ -94,6 +94,8 @@ enum Pending {
         task_id: String,
     },
     Integrated,
+    /// `task/abortIntegration` answered for a task that was stuck in an integration conflict.
+    Aborted,
     Revision {
         pages: u32,
     },
@@ -114,6 +116,8 @@ pub struct Client {
     task_of_agent: HashMap<String, String>,
     /// Raw task status per task id, so the client can tell whether a task is still running.
     task_status: HashMap<String, String>,
+    /// Integration note per task id ("未集成" for a finished coding task not on the branch).
+    task_integration: HashMap<String, String>,
     /// Attachments captured per task, read locally when reviewing a diff or a result.
     artifacts: HashMap<String, Vec<Artifact>>,
     /// Summary and note to restore when a compaction retries after a revision change.
@@ -142,6 +146,7 @@ impl Client {
             after: 0,
             task_of_agent: HashMap::new(),
             task_status: HashMap::new(),
+            task_integration: HashMap::new(),
             artifacts: HashMap::new(),
             compact_retry: None,
             probe: None,
@@ -174,6 +179,7 @@ impl Client {
         self.after = 0;
         self.task_of_agent.clear();
         self.task_status.clear();
+        self.task_integration.clear();
         self.artifacts.clear();
         self.blocked_reason.clear();
         self.delegation.clear();
@@ -400,6 +406,7 @@ impl Client {
             Pending::Tasks => {
                 self.task_of_agent.clear();
                 self.task_status.clear();
+                self.task_integration.clear();
                 for task in value.as_array().into_iter().flatten() {
                     let (Some(agent), Some(id)) = (task["agentId"].as_str(), task["id"].as_str())
                     else {
@@ -410,6 +417,8 @@ impl Client {
                         id.to_owned(),
                         task["status"].as_str().unwrap_or("").to_owned(),
                     );
+                    self.task_integration
+                        .insert(id.to_owned(), integration_note(task).to_owned());
                     if let Some(index) = app.pane_of(agent) {
                         let status = status_label(task["status"].as_str().unwrap_or(""));
                         app.panes[index].status = status.into();
@@ -497,6 +506,7 @@ impl Client {
                     &blocked,
                     &delegation,
                     &self.task_status,
+                    &self.task_integration,
                 );
                 form.artifacts = self.artifact_inventory(&task_id);
                 form.body = self.read_attachment(&task_id, "full result");
@@ -517,7 +527,27 @@ impl Client {
             }
             Pending::Output { pane, task_id } => self.apply_output(app, pane, &task_id, &value),
             Pending::Review { pane, task_id } => {
-                self.open_review(app, pane, task_id, &value);
+                if value["integrationStatus"].as_str() == Some("conflict") {
+                    // Reviewing again cannot help: the conflicted merge is still sitting in the
+                    // integration worktree and would block the next task too. Drop it first.
+                    self.request(
+                        app,
+                        "task/abortIntegration",
+                        json!({"taskId": task_id}),
+                        Pending::Aborted,
+                    );
+                } else {
+                    self.open_review(app, pane, task_id, &value);
+                }
+            }
+            Pending::Aborted => {
+                app.feedback = if value["status"].as_str() == Some("pending") {
+                    "已放弃这次集成：协作分支未变。可让主控返工后重新审查，或再按 Ctrl+G 重新集成。"
+                        .into()
+                } else {
+                    "无法放弃这次集成，请核查集成工作区。".into()
+                };
+                self.refresh_lists(app);
             }
             Pending::Integrated => {
                 let status = value["status"].as_str().unwrap_or("failed");
@@ -659,8 +689,7 @@ impl Client {
             }
             "integration" => {
                 if let Some(index) = agent.and_then(|a| app.pane_of(a)) {
-                    let status = data["status"].as_str().unwrap_or("?");
-                    app.push_line(index, format!("[集成] {status}"), WARN);
+                    app.push_line(index, integration_text(data), WARN);
                 }
             }
             "task_continued" | "task_incomplete" => {
@@ -1358,6 +1387,19 @@ fn build_agent_form(app: &App, pane: usize) -> AgentForm {
 /// The host owns every value; absent optional fields stay empty so the renderer can show `—` rather
 /// than inventing a worktree, commit or integration state. Dependency labels come from the last
 /// `task/list` snapshot, which is normally current because the host broadcasts `task_changed`.
+/// The dependency row answers "why is this queued": a coding dependency that finished without
+/// reaching the collaboration branch is the usual reason.
+fn integration_note(task: &Value) -> &'static str {
+    let coding = task["coding"].as_bool().unwrap_or(false);
+    let completed = task["status"].as_str() == Some("completed");
+    let integrated = task["integrationStatus"].as_str() == Some("integrated");
+    if coding && completed && !integrated {
+        "未集成"
+    } else {
+        ""
+    }
+}
+
 fn build_detail(
     pane: usize,
     task_id: String,
@@ -1365,6 +1407,7 @@ fn build_detail(
     blocked: &str,
     delegation: &str,
     statuses: &HashMap<String, String>,
+    integrations: &HashMap<String, String>,
 ) -> DetailForm {
     let dependencies = task["dependencies"]
         .as_array()
@@ -1372,10 +1415,16 @@ fn build_detail(
         .flatten()
         .filter_map(Value::as_str)
         .map(|id| {
-            let status = statuses
+            let mut status = statuses
                 .get(id)
                 .map(|raw| status_label(raw).to_owned())
                 .unwrap_or_else(|| "—".to_owned());
+            // A dependency that finished but never reached the branch explains a stuck queue; say
+            // so on the row instead of leaving the operator to open the dependency's own detail.
+            if let Some(note) = integrations.get(id).filter(|note| !note.is_empty()) {
+                status.push_str(" · ");
+                status.push_str(note);
+            }
             (short(id), status)
         })
         .collect();
@@ -1402,6 +1451,21 @@ fn build_detail(
 }
 
 /// Display label for a task's `integrationStatus`.
+/// One line for the pane. A conflict names the reason, because "存在冲突" alone does not tell the
+/// operator whether the candidate or the branch is at fault.
+fn integration_text(data: &Value) -> String {
+    let status = data["status"].as_str().unwrap_or("?");
+    let mut text = format!("[集成] {}", integration_label(status));
+    let relevant = matches!(status, "conflict" | "failed" | "interrupted");
+    if let Some(message) = data["evidence"]["message"]
+        .as_str()
+        .filter(|m| !m.is_empty() && relevant)
+    {
+        text.push_str(&format!("：{message}"));
+    }
+    text
+}
+
 fn integration_label(status: &str) -> String {
     match status {
         "integrated" => "已集成".to_owned(),
@@ -1810,6 +1874,24 @@ mod tests {
     }
 
     #[test]
+    fn integration_lines_name_the_state_and_the_conflict_reason() {
+        assert_eq!(
+            integration_text(&json!({"status":"integrated","head":"abc"})),
+            "[集成] 已集成"
+        );
+        assert_eq!(
+            integration_text(
+                &json!({"status":"conflict","evidence":{"message":"merge failed; inspect integration worktree before retrying"}})
+            ),
+            "[集成] 存在冲突：merge failed; inspect integration worktree before retrying"
+        );
+        assert_eq!(
+            integration_text(&json!({"status":"pending"})),
+            "[集成] 未集成"
+        );
+    }
+
+    #[test]
     fn detail_maps_every_host_field_and_labels_dependencies() {
         let mut app = App::live();
         apply_agents(
@@ -1826,6 +1908,8 @@ mod tests {
         });
         let mut statuses = HashMap::new();
         statuses.insert("d1".to_owned(), "completed".to_owned());
+        let mut integrations = HashMap::new();
+        integrations.insert("d1".to_owned(), "未集成".to_owned());
         let form = build_detail(
             1,
             "t1".into(),
@@ -1833,6 +1917,7 @@ mod tests {
             "blocked reason",
             "已由宿主续跑 2 次",
             &statuses,
+            &integrations,
         );
         assert_eq!(form.pane, 1);
         assert_eq!(form.task_id, "t1");
@@ -1854,7 +1939,10 @@ mod tests {
             "{:?}",
             form.dependencies[0]
         );
-        assert_eq!(form.dependencies[0].1, "已完成");
+        assert_eq!(
+            form.dependencies[0].1, "已完成 · 未集成",
+            "a finished dependency that never reached the branch says so"
+        );
         assert_eq!(
             form.dependencies[1].1, "—",
             "a dependency missing from task/list is not guessed"
@@ -1868,6 +1956,7 @@ mod tests {
             "",
             "",
             &statuses,
+            &integrations,
         );
         assert_eq!(form.worktree, "");
         assert_eq!(form.commit, "");
@@ -1879,7 +1968,7 @@ mod tests {
         assert_eq!(form.task_id, "t2");
 
         // The task id falls back to the requested one when the payload omits it.
-        let form = build_detail(0, "t3".into(), &json!({}), "", "", &statuses);
+        let form = build_detail(0, "t3".into(), &json!({}), "", "", &statuses, &integrations);
         assert_eq!(form.task_id, "t3");
     }
 

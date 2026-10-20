@@ -105,6 +105,10 @@ fn dependencies_require_coding_integration() {
     assert!(s.claim().unwrap().is_none());
     s.integration(&first.id, "checking", &json!({})).unwrap();
     s.integration(&first.id, "integrated", &json!({})).unwrap();
+    let events = s.events(&session.id, 0, 500).unwrap();
+    for event in events.iter().filter(|e| e.kind == "integration") {
+        assert_eq!(event.agent_id.as_deref(), Some(a[1].id.as_str()));
+    }
     assert_eq!(s.claim().unwrap().unwrap().id, next.id);
 }
 #[test]

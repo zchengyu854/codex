@@ -1,7 +1,7 @@
 # 阶段 7 设计：真实多 Agent 协作
 
 日期：2026-10-20（Asia/Shanghai）。
-状态：**7-1、7-2 已实现并验证**（真实多 Agent 派发与依赖门；主控提前收工的宿主兜底与提交归属）；7-3 待做。
+状态：**7-1 至 7-3 已实现**（真实多 Agent 派发与依赖门；宿主兜底与提交归属；并发、冲突与队列卫生）。7-3 的并发/冲突/放弃有真实证据，放弃后的继续集成由本地回归验证；真实收尾任务受 Keychain 环境问题中断。
 
 ## 出发点
 
@@ -95,12 +95,29 @@ worker 的两次自述都写着 "no git commands run, as instructed"，审批也
 
 验证：workspace 121（core 35 / tui 86）、opt-in 87、clippy `-D warnings`、fmt `--check`、双 pty 探针、demo 快照。证据：`evidence/stage-7-guard.{json,log}`、`stage-7-guard-budget.json`、`stage-7-tests.log` 与四张 34×132 快照（总览、共享记录、主控详情、依赖任务详情）。
 
-## 7-3 并发、集成顺序与冲突（依赖 7-1）
+## 7-3 并发、集成顺序与冲突（已实现）
 
-- 队列卫生：创建者已终止、依赖又停在"完成但未集成"的任务，不能永远 `queued`；至少在详情与事件里说清"等谁、为什么"，并给出补派发/手工集成的入口。
-- 两个互不依赖的编码任务同时派给 W1/W2，断言二者 `running` 时间段**重叠**（证明并发不是串行），集成仍按协调者顺序逐条执行。
-- 让两个任务改同一文件的不同行/同一行：前者应可集成，后者应进入冲突并**暂停**（`integrationStatus=conflict`），协调者/操作者能看到原因；不自动解决冲突。
-- 若 7-1 已暴露集成顺序问题，先修再跑本段。
+**实现记录（2026-10-20）**
+
+- 冲突保留候选工作区，协作分支不前进。新增 `task/abortIntegration(taskId)`：仅接受 `integrationStatus=conflict`，持集成互斥锁，执行 `merge --abort`（squash 冲突无 MERGE_HEAD 时允许失败）和 `reset --hard HEAD`，将任务集成状态退回 `pending`，发布 `integration` 事件。任务结果和候选提交保留；集成工作区里的冲突及手工修改被丢弃。TUI 对冲突任务再次按 `Ctrl+G` 即放弃；返工后再审查、集成，不自动解决冲突。
+- 队列卫生：turn 失败且遗留自己创建的未完成子任务时，发布一次 `task_incomplete`，包含失败原因与子任务清单。详情里的依赖行显示「已完成 · 未集成」，操作者可手工 `Ctrl+G` 集成依赖，或补派主控收尾。队列不会因创建者失败而绕过依赖门。
+- 集成事件带任务 Agent 归属，窗格从 `evidence.message` 展示冲突原因。429 最多 4 次请求，默认等待 5/15/30 秒；5xx 最多 3 次，等待 2/4 秒。有效的秒数 `Retry-After` 优先，等待上限 60 秒且可取消；不重放已经开始的响应流。
+- `scripts/stage7_conflict.py` 先集成种子文件，再把同基线、改同一行的任务派给两个 worker，按顺序集成以触发冲突，放弃后派发改另一行的恢复任务。记录错峰偏移、观察窗口、任务快照、分支头、工作区状态和审批；断言放弃不丢候选提交及最终文件内容。`stage7_conflict_evidence.sh --reuse` 从现有 JSON 重建日志和三张快照，不再请求模型。
+
+真实记录 `evidence/stage-7-conflict.json`（`shared6.txt`，两个 worker 错峰 22 秒）：
+
+| 观测 | 结果 |
+| --- | --- |
+| 宿主并发 | `0d09ec5a` / `581c0799` 的 `running` 观察区间重叠 24.8 秒；两者基线均为 `2fe2129` |
+| 顺序集成 | 种子 `e832924 → 2fe2129`；首个编辑 `2fe2129 → 62f6d00` |
+| 同行冲突 | 第二个编辑进入 `conflict`，分支仍为 `62f6d00`，集成工作区有未合并内容 |
+| 放弃候选 | `task/abortIntegration` 后分支仍为 `62f6d00`，工作区干净；任务 `completed / pending`，提交保留 |
+| 内容与源仓库 | 文件仍为 `one\ntwo\nTHREE\n`；源仓库干净；0 条审批 |
+| 真实恢复任务 | `f62c972e` 因 `Keychain credential unavailable` 失败，未完成后续集成；原始 JSON 的 `verdict.ok=false` 原样保留 |
+
+限制：`running` 重叠证明宿主可以并发调度，不能证明服务商同时计算两个请求。交接记录指出该服务商同一凭证并发上限为 1，前几轮突发请求出现 429；本轮错峰绕开限制，结论不外推到其它服务商。旧证据未记录派发偏移，24.8 秒仅为错峰后的观察窗口。2026-10-20 本次接手重放在种子任务即遇到 Keychain 不可用，未产生新的模型结果；访问真实服务商与自动命令审批的提权请求被自动审批审查拒绝，暂沿用已有真实证据。
+
+验证：workspace 124（core 37 / tui 87）、TUI 含可选测试 88；clippy、fmt、双 pty 探针与 demo 快照见 `evidence/stage-7-tests.log`。`core/tests/git.rs::a_conflicting_candidate_is_marked_conflict_and_can_be_dropped` 验证冲突不推进分支、脏工作区拒绝后续集成、放弃后内容保留且仍可集成；runtime 回归验证失败 turn 恰好一次未完成上报，gateway 回归验证 `Retry-After: 0`，TUI/store 回归覆盖真实事件结构、Agent 归属与依赖提示。证据另见 `stage-7-conflict.log` 及三张 34×132 快照（总览、共享记录、冲突任务放弃后的详情）。
 
 ## 7-4 审批策略（可选，取决于真实摩擦）
 
@@ -122,7 +139,7 @@ worker 的两次自述都写着 "no git commands run, as instructed"，审批也
 
 ## 顺序与依赖
 
-- 7-1 先行；7-2 依赖 7-1 的时序证据；7-3 只在摩擦被证实后做；7-4 收尾。
+- 7-1 先行；7-2 依赖 7-1 的时序证据；7-3 已完成冲突与队列卫生；7-4 按实际摩擦选做；7-5 收尾。
 - 每段沿用既有节奏：`--locked` workspace 测试 + tui `--include-ignored` + clippy `-D warnings` + fmt `--check` + demo/live pty 探针 + 快照 → 更新文档与证据 → 提交推送 `origin`（不建 PR）。
 
 ## 已确认

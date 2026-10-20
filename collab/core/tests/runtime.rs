@@ -68,6 +68,23 @@ for line in sys.stdin:
         emit({'method': 'item/completed', 'params': {'item': {'type': 'agentMessage', 'id': 'msg-%d' % turn, 'text': 'turn-%d' % turn}}})
         emit({'method': 'turn/completed', 'params': {'turn': {'status': 'completed'}}})
 "#;
+// A coordinator whose turn fails after it delegated work: the turn cannot be nudged, so the host
+// has to say out loud what it left behind.
+const FAILED_TURN_FIXTURE: &str = r#"#!/usr/bin/python3
+import sys, json
+worker = 'aaaaaaaa-0000-4000-8000-000000000002'
+def emit(v): print(json.dumps(v), flush=True)
+for line in sys.stdin:
+    value = json.loads(line)
+    method = value.get('method')
+    if method == 'initialize': emit({'id': value['id'], 'result': {}})
+    elif method == 'thread/start': emit({'id': value['id'], 'result': {'thread': {'id': 'fixture-thread'}}})
+    elif method == 'turn/start':
+        emit({'id': value['id'], 'result': {'turn': {'id': 'fixture-turn'}}})
+        emit({'id': 'create-1', 'method': 'item/tool/call', 'params': {'tool': 'collab_create_task', 'arguments': {'agentId': worker, 'goal': 'orphaned delegated work', 'acceptance': 'never integrated', 'coding': True, 'dependencies': []}}})
+        emit({'method': 'item/completed', 'params': {'item': {'type': 'agentMessage', 'id': 'msg-1', 'text': 'created the task'}}})
+        emit({'method': 'turn/completed', 'params': {'turn': {'status': 'failed', 'error': {'message': 'exceeded retry limit, last status: 429 Too Many Requests'}}}})
+"#;
 async fn setup_with(
     fixture: &str,
 ) -> (
@@ -249,6 +266,41 @@ async fn failed_turn_surfaces_the_protocol_error_message() {
         result.contains("upstream authentication failed"),
         "the protocol error text is not surfaced: {result}"
     );
+}
+#[tokio::test]
+async fn a_failed_turn_reports_the_work_it_left_behind() {
+    let (_repo, _root, rt, t, _schedule) = setup_as(FAILED_TURN_FIXTURE, Role::Coordinator).await;
+    let done = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+        loop {
+            let task = rt.store.task(&t.id).unwrap();
+            if task.status != "running" && task.status != "queued" {
+                break task;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the coordinator task never reached a terminal state");
+    assert_eq!(done.status, "failed", "{done:?}");
+
+    let events = rt.store.events(&t.request.session_id, 0, 500).unwrap();
+    let flagged: Vec<&serde_json::Value> = events
+        .iter()
+        .filter(|e| e.kind == "task_incomplete")
+        .map(|e| &e.data)
+        .collect();
+    assert_eq!(flagged.len(), 1, "{flagged:?}");
+    // The failure text reaches the operator instead of a bare "completed".
+    let reason = flagged[0]["reason"].as_str().unwrap_or("");
+    assert!(reason.contains("turn failed"), "{reason}");
+    assert!(reason.contains("429"), "{reason}");
+    let goals: Vec<&str> = flagged[0]["tasks"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|task| task["goal"].as_str())
+        .collect();
+    assert_eq!(goals, vec!["orphaned delegated work"], "{flagged:?}");
 }
 #[test]
 fn the_commit_rule_reaches_both_prompts() {

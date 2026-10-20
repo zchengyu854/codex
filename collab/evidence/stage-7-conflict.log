@@ -1,0 +1,175 @@
+# stage 7 concurrency and integration conflict
+Tue Oct 20 15:01:58 CST 2026
+# 端点按阶段 6/7 的安全边界脱敏；密钥只经 TUI 的 Ctrl+K 进入 Keychain
+
+## 环境
+状态目录 /private/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/codex-collab-stage7-live
+会话     6d5d6f0f-ad1f-417e-8934-201111fa4ed0
+Agent    …0001 · coordinator agnes-3.0-flash · chat_completions · 预算 128000 字节
+Agent    …0002 · worker      agnes-3.0-flash · chat_completions · 预算 128000 字节
+Agent    …0003 · worker      agnes-3.0-flash · chat_completions · 预算 128000 字节
+
+## 场景：种子、两个同基线冲突编辑、放弃后的恢复任务
+种子任务先建文件并集成；两个 worker 从同一基线修改同一行，依次集成以触发冲突；放弃后再派发另一个行的编辑。
+每次轮询的时间线单独从 0 计时；并发窗口只计算两个冲突编辑的观察区间。
+
+时间线（只列本轮任务）：
+      0.0s  348e094f  …0002  queued     pending
+      0.1s  348e094f  …0002  running    pending
+     42.8s  348e094f  …0002  completed  pending
+      0.0s  0d09ec5a  …0002  running    pending
+      0.0s  581c0799  …0003  queued     pending
+      0.0s  581c0799  …0003  running    pending
+     24.8s  0d09ec5a  …0002  completed  pending
+     53.2s  581c0799  …0003  completed  pending
+      0.0s  f62c972e  …0001  queued     pending
+      0.0s  f62c972e  …0001  running    pending
+      3.7s  f62c972e  …0001  failed     pending
+
+并发窗口：
+  0d09ec5a  0.0s → 24.8s
+  581c0799  0.0s → 53.2s
+至少两个任务真正重叠：是
+
+任务：
+  348e094f · …0002 · completed · 集成 pending · 提交 2fe21290
+    目标 Create a file named shared6.txt in the workspace root with exactly three lines: one, two, three (one word per line, a s…
+    自述 Task done. Created `shared6.txt` at the workspace root with the three lines `one`, `two`, `three` (single trailing newline), verified via `cat -e` and `wc -l` …
+  0d09ec5a · …0002 · completed · 集成 pending · 提交 383bb681
+    目标 In shared6.txt replace the third line `three` with `THREE`. Change no other line. Do not run git commands.
+    自述 Done. Replaced the third line of `shared6.txt` with `THREE` and verified the file now reads `one`, `two`, `THREE`. No other lines or files changed; no git comm…
+  581c0799 · …0003 · completed · 集成 pending · 提交 c3f7f657
+    目标 In shared6.txt replace the third line `three` with `333`. Change no other line. Do not run git commands.
+    自述 Done. In `shared6.txt:3` the third line now reads `333` (verified with `cat -e`: `one$`, `two$`, `333$`). No other lines or files changed, and no git commands …
+  f62c972e · …0001 · failed · 集成 pending · 提交 —
+    目标 In shared6.txt replace the first line `one` with `ONE`. Change no other line. Do not run git commands.
+    自述 Keychain credential unavailable
+
+## 集成（与 TUI 的 Ctrl+G 同一条宿主路径）
+  种子 · integrated · e8329242 → 2fe21290
+  编辑 · integrated · 2fe21290 → 62f6d004
+  同一行 · conflict · 分支未前进（62f6d004）
+
+## 冲突与放弃
+冲突时工作区有未合并内容：是
+task/abortIntegration → pending · 分支 62f6d004 → 62f6d004 · 工作区仍有改动：否
+任务状态回到 pending（自述与提交保留，可返工后重新审查）
+
+## 分支内容
+  文件内容 'one\ntwo\nTHREE\n'
+原始仓库未被改动：是
+最近提交：['62f6d00 Collaborative task result', '2fe2129 Collaborative task result', 'e832924 Collaborative task result']
+审批 0 条
+
+## 结论
+未通过：the post-conflict task ended failed
+
+放弃后的恢复任务未在本次真实运行中完成；后续集成能力另见 git 回归测试。
+说明：冲突不自动解决，也不覆盖分支；宿主只负责把候选退回可重试状态。
+
+## 界面快照（34x132，真实宿主，放弃冲突之后）
+
+›_ codex-collab  会话 6d5d6f0f…
+左侧主控 / 右侧三个工作终端
+┌ ▶ 1 主控 · agnes-3.0-flash [失败] ──────────────────────┐┌ 2 工作1 · agnes-3.0-flash [失败] ─────────────────────────────────────┐
+│https://<provider>/v1      / Chat Completions · 128000 字││https://<provider>/v1      / Chat Completions · 128000 字节预算        │
+│[产物] full result                                       ││[产物] file diff                                                       │
+│[任务] 已完成 Now creating the second worker task with a ││[任务] 已完成 Done. Replaced the third line of `shared6.txt` with      │
+│dependency on the first:Both tasks created; now waiting  ││`THREE` and verified the file now reads `one`, `two`, `THREE`. No other│
+│on the g.txt task:Diff only adds `g.txt` with `eta` —    ││lines or files changed; no git commands were run.Task complete. Result │
+│integrating:g.txt task integrated. Now waiting on the    ││published to the coordinator.                                          │
+│h.txt task:h.txt task completed. Reviewing its diff:Diff ││[任务] 失败 Keychain credential unavailable                            │
+│only adds `h.txt` with `theta` — integrating:Both worker ││❯                                                                      │
+│tasks are complete and integrated into the collaboration │└───────────────────────────────────────────────────────────────────────┘
+│branch.- g.txt (contains `eta`): commit                  │┌ 3 工作2 · agnes-3.0-flash [已完成] ───────────────────────────────────┐
+│`6005323c84a2a115044890e52cd0fea5d7cef55b`- h.txt        ││https://<provider>/v1      / Chat Completions · 128000 字节预算        │
+│(contains `theta`): commit                               ││[产物] full result                                                     │
+│`ddf321eb0db639d01f416854b773962fa63cd5d2`The h.txt task ││[产物] file diff                                                       │
+│only started after the g.txt task was integrated (its    ││[任务] 已完成 Done. In `shared6.txt:3` the third line now reads `333`  │
+│base commit matches the post-integration head), and both ││(verified with `cat -e`: `one$`, `two$`, `333$`). No other lines or    │
+│integrations report status `integrated`.                 ││files changed, and no git commands were run.                           │
+│主控 ›                                                   ││❯                                                                      │
+│主控 ›                                                   │└───────────────────────────────────────────────────────────────────────┘
+│主控 ›                                                   │┌ 4 工作3 · — [未配置] ─────────────────────────────────────────────────┐
+│主控 ›                                                   ││— / —                                                                  │
+│[任务] 失败 Agent turn failed or interrupted: exceeded   ││                                                                       │
+│retry limit, last status: 429 Too Many Requests          ││                                                                       │
+│主控 › I'll update the third line of shared3.txt now.    ││                                                                       │
+│[任务] 失败 Agent turn failed or interrupted: exceeded   ││                                                                       │
+│retry limit, last status: 429 Too Many Requests          ││                                                                       │
+│[任务] 失败 Keychain credential unavailable              ││                                                                       │
+│❯                                                        ││❯                                                                      │
+└─────────────────────────────────────────────────────────┘└───────────────────────────────────────────────────────────────────────┘
+[1 主控] 编码:关  Tab 焦点  F2 放大  F3 共享  Ctrl+A 配置  Ctrl+L 会话  Ctrl+K 密钥  Ctrl+R 刷新  Ctrl+C 停止  Ctrl+Q 退出
+Ctrl+T 自检  Ctrl+U 约束  Ctrl+O 结果  Ctrl+D 详情  Ctrl+F 编排  Ctrl+E 编码  Ctrl+G 审查集成  Ctrl+P 压缩  Ctrl+N 新建
+已连接后台（/Users/Apple/Documents/ZcyCode/codex-collab/collab/target/debug/codex-collab-core /private/var/folders/9c/t0_s_j511mz57x
+
+›_ codex-collab  会话 6d5d6f0f…
+左侧主控 / 右侧三个工作终端
+┌ ▶ 1 主控 · agnes-3.0-flash [失败] ──────────────────────┐┌ 2 工作1 · agnes-3.0-flash [失败] ─────────────────────────────────────┐
+│https://<provider>/v1      / Chat Completions · 128000 字││https://<provider>/v1      / Chat Completions · 128000 字节预算        │
+│h.txt task:h.txt task completed. Reviewing its diff:Diff ││`THREE` and verified the file now reads `one`, `two`, `THREE`. No other│
+│only adds `h.txt` with `theta` — integrating:Both worker ││lines or files changed; no git commands were run.Task complete. Result │
+│tasks are complete and integrated into the collaboration ││published to the coordinator.                                          │
+│branch.- g.txt (contains `eta`): commit                  ││[任务] 失败 Keychain credential unavailable                            │
+│`6005323c84a2a115044890e52cd0fea5d7cef55b`- h.txt        ││❯                                                                      │
+│(contains `theta`): commit                               │└───────────────────────────────────────────────────────────────────────┘
+│`ddf321eb0db639d01f416854b773962fa63cd5d2`The h.txt task │┌ 3 工作2 · agnes-3.0-flash [已完成] ───────────────────────────────────┐
+│only started after the g.txt task was integrated (its    ││https://<provider>/v1      / Chat Completions · 128000 字节预算        │
+│base commit matches the post-integration head), and both ││[产物] file diff                                                       │
+│integrations report status `integrated`.                 ││[任务] 已完成 Done. In `shared6.txt:3` the third line now reads `333`  │
+│主控 ›                                                   ││(verified with `cat -e`: `one$`, `two$`, `333$`). No other lines or    │
+│主控 ›                                                   ││files changed, and no git commands were run.                           │
+│主控 ›                                                   ││❯                                                                      │
+│主控 ›                                                   │└───────────────────────────────────────────────────────────────────────┘
+│[任务] 失败 Agent turn failed or interrupted: exceeded   │┌ 4 工作3 · — [未配置] ─────────────────────────────────────────────────┐
+│retry limit, last status: 429 Too Many Requests          ││— / —                                                                  │
+│主控 › I'll update the third line of shared3.txt now.    ││                                                                       │
+│[任务] 失败 Agent turn failed or interrupted: exceeded   ││                                                                       │
+│retry limit, last status: 429 Too Many Requests          ││                                                                       │
+│[任务] 失败 Keychain credential unavailable              ││                                                                       │
+│❯                                                        ││❯                                                                      │
+└─────────────────────────────────────────────────────────┘└───────────────────────────────────────────────────────────────────────┘
+┌ 共享记录 · F3 收起 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│[用户] 保留公开接口：只新建文件，不改既有文件；测试通过                                                                           │
+│[未完成] 主控收工时仍有子任务未完成：3f4f4030…                                                                                    │
+│                                                                                                                                  │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+[1 主控] 编码:关  Tab 焦点  F2 放大  F3 共享  Ctrl+A 配置  Ctrl+L 会话  Ctrl+K 密钥  Ctrl+R 刷新  Ctrl+C 停止  Ctrl+Q 退出
+Ctrl+T 自检  Ctrl+U 约束  Ctrl+O 结果  Ctrl+D 详情  Ctrl+F 编排  Ctrl+E 编码  Ctrl+G 审查集成  Ctrl+P 压缩  Ctrl+N 新建
+已连接后台（/Users/Apple/Documents/ZcyCode/codex-collab/collab/target/debug/codex-collab-core /private/var/folders/9c/t0_s_j511mz57x
+
+›_ codex-collab  会话 6d5d6f0f…
+左侧主┌ 任务详情 · task/get 状态、工作区与结果 ──────────────────────────────────────────────────────────────────────────────┐
+┌ 1 主│任务 581c0799… · 已完成 · 编码 开（产物需集成）                                                                       │─────┐
+│https│窗格 3 工作2 · Agent 77777777-0000-4000-8000-000000000003                                                             │     │
+│[产物│上下文版本 464 · 集成 未集成                                                                                          │     │
+│[任务│工作区                                                                                                                │     │
+│depen│/private/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/codex-collab-stage7-live/worktrees/6d5d6f0f-ad1f-417e-8934-20│other│
+│on th│1111fa4ed0/581c0799-dfb0-415e-8075-a625149f86ec                                                                       │sult │
+│integ│基线 2fe212908c3c2efc16f70867980f7535fd787b43                                                                         │     │
+│h.txt│候选提交 c3f7f657bd89b8ccbb0ba218171b691783cf0992                                                                     │     │
+│only │                                                                                                                      │     │
+│tasks│目标：                                                                                                                │─────┘
+│branc│In shared6.txt replace the third line `three` with `333`. Change no other line. Do not run git commands.              │─────┐
+│`6005│验收标准：                                                                                                            │     │
+│(cont│third line is 333                                                                                                     │     │
+│`ddf3│依赖：无                                                                                                              │     │
+│only │结果摘要：                                                                                                            │33`  │
+│base │                                                                                                                      │r    │
+│integ│                                                                                                                      │     │
+│主控 │                                                                                                                      │     │
+│主控 │Done. In `shared6.txt:3` the third line now reads `333` (verified with `cat -e`: `one$`, `two$`, `333$`). No other    │─────┘
+│主控 │lines or files changed, and no git commands were run.                                                                 │─────┐
+│主控 │产物：                                                                                                                │     │
+│[任务│full result · 172 字节 ·                                                                                              │     │
+│retry│/private/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/codex-collab-stage7-live/attachments/581c0799-dfb0-415e-8075-│     │
+│主控 │a6…                                                                                                                   │     │
+│[任务│file diff · 142 字节 ·                                                                                                │     │
+│retry│/private/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/codex-collab-stage7-live/attachments/581c0799-dfb0-415e-8075-│     │
+│[任务│a6…                                                                                                                   │     │
+│❯    │完整结果（附件，本机只读）：                                                                                          │     │
+└─────│                                                                                                                      │─────┘
+[3 工作                                                                                                                      │
+Ctrl+T└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+任务 581c0799… 详情已加载：PgUp/PgDn 滚动，Ctrl+R 刷新。

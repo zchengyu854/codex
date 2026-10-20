@@ -63,6 +63,62 @@ async fn candidate(s: &Session, root: &std::path::Path, file: &str, text: &str) 
     t
 }
 #[tokio::test]
+async fn a_conflicting_candidate_is_marked_conflict_and_can_be_dropped() {
+    let repo = repo().await;
+    let root = TempDir::new().unwrap();
+    let s = git::create_session(repo.path(), root.path(), vec![vec!["/usr/bin/true".into()]])
+        .await
+        .unwrap();
+    let token = CancellationToken::new();
+    // Two tasks rewrite the same line from the same base: the first integrates, the second cannot.
+    let a = candidate(&s, root.path(), "file", "alpha\n").await;
+    let b = candidate(&s, root.path(), "file", "beta\n").await;
+    let first = git::integrate(&s, &a, &token).await.unwrap();
+    assert_eq!(first["status"], "integrated");
+    let head = first["head"].as_str().unwrap().to_owned();
+
+    let second = git::integrate(&s, &b, &token).await.unwrap();
+    assert_eq!(second["status"], "conflict", "{second}");
+    assert_eq!(
+        cmd(&s.integration_path, &["rev-parse", "HEAD"]).await,
+        head,
+        "a conflict must not advance the collaboration branch"
+    );
+    assert!(
+        !cmd(&s.integration_path, &["status", "--porcelain"])
+            .await
+            .is_empty(),
+        "the conflicted merge stays in the worktree for inspection"
+    );
+    // While that merge is in flight every further candidate is refused, so the session needs the
+    // explicit drop instead of silently stacking merges.
+    assert!(
+        git::integrate(&s, &b, &token).await.is_err(),
+        "a dirty integration worktree refuses the next candidate"
+    );
+
+    let restored = git::abort_integration(&s).await.unwrap();
+    assert_eq!(restored, head);
+    assert!(
+        cmd(&s.integration_path, &["status", "--porcelain"])
+            .await
+            .is_empty()
+    );
+    assert_eq!(
+        std::fs::read_to_string(s.integration_path.join("file")).unwrap(),
+        "alpha\n",
+        "dropping the candidate keeps the integrated content"
+    );
+
+    let c = candidate(&s, root.path(), "other", "c").await;
+    assert_eq!(
+        git::integrate(&s, &c, &token).await.unwrap()["status"],
+        "integrated",
+        "the session keeps integrating after the drop"
+    );
+}
+
+#[tokio::test]
 async fn worktrees_exclude_dirty_original_and_revalidate_stale_results() {
     let repo = repo().await;
     std::fs::write(repo.path().join("uncommitted"), "private").unwrap();

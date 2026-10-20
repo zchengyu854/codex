@@ -315,6 +315,32 @@ impl Runtime {
                         .trim()
                         .to_owned();
                     let detail = redact(&detail, &[&gateway.token, redactions[0].as_str()]);
+                    // A failed turn cannot nudge itself, but whatever it delegated is now
+                    // orphaned: report it once so the session does not look finished and the
+                    // operator hears about the queued work instead of discovering it later.
+                    let orphaned =
+                        unfinished_delegated(&self.store, &task.request.session_id, &task.id)?;
+                    if !orphaned.is_empty() {
+                        let summary: Vec<Value> = orphaned.iter().map(delegated_summary).collect();
+                        let reason = if detail.is_empty() {
+                            "turn failed".to_owned()
+                        } else {
+                            format!("turn failed: {}", clip(&detail, 200))
+                        };
+                        self.store.note(
+                            &task.request.session_id,
+                            Some(&task.request.agent_id),
+                            Some(&task.id),
+                            "task_incomplete",
+                            &json!({"tasks": summary, "reason": reason}),
+                        )?;
+                        let _ = self.updates.send(json!({
+                            "kind": "task_changed",
+                            "sessionId": task.request.session_id,
+                            "agentId": task.request.agent_id,
+                            "taskId": task.id,
+                        }));
+                    }
                     if detail.is_empty() {
                         bail!("Agent turn failed or interrupted");
                     }
@@ -573,6 +599,24 @@ Continue now: wait for it, review its diff, integrate it when it is coding, and 
         guard.finished = true;
         Ok(result)
     }
+    /// Drop a conflicted candidate so the session can keep integrating.
+    ///
+    /// A conflict is not resolved here: the operator (or the coordinator) decides what the correct
+    /// content is. What this guarantees is that the integration worktree is back on the branch
+    /// head, so the next reviewed task is not blocked by the previous conflict.
+    pub async fn abort_integration(&self, task_id: &str) -> Result<Value> {
+        let _guard = self.integration.lock().await;
+        let fresh = self.store.task(task_id)?;
+        ensure!(
+            fresh.integration_status == "conflict",
+            "task is not in an integration conflict"
+        );
+        let s = self.store.session(&fresh.request.session_id)?;
+        let head = git::abort_integration(&s).await?;
+        let result = json!({"status":"pending","aborted":true,"head":head,"message":"conflicted candidate dropped; integrate again after the change is reworked"});
+        self.store.integration(task_id, "pending", &result)?;
+        Ok(result)
+    }
     /// JSON RPC facade shared by the headless host and the future Tauri command layer.
     pub async fn dispatch(self: &Arc<Self>, method: &str, args: Value) -> Result<Value> {
         match method {
@@ -670,6 +714,7 @@ Continue now: wait for it, review its diff, integrate it when it is coding, and 
                 self.cancel(required(&args, "taskId")?).await?;
                 Ok(json!({"cancelled":true}))
             }
+            "task/abortIntegration" => self.abort_integration(required(&args, "taskId")?).await,
             "task/integrate" => {
                 let task = self.store.task(required(&args, "taskId")?)?;
                 self.integrate(

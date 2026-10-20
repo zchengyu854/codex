@@ -190,7 +190,7 @@ pub async fn integrate(s: &Session, t: &Task, cancel: &CancellationToken) -> Res
         let child = check.spawn()?;
         let _group = crate::runtime::ProcessGroup(child.id());
         let output = tokio::select! { _=cancel.cancelled()=>return Ok(json!({"status":"interrupted","originalHead":original})), out=tokio::time::timeout(std::time::Duration::from_secs(300),child.wait_with_output())=>out?? };
-        checks.push(json!({"command":args,"success":output.status.success(),"stdout":clip(&String::from_utf8_lossy(&output.stdout),16_000),"stderr":clip(&String::from_utf8_lossy(&output.stderr),16_000)}));
+        checks.push(json!({"command":args,"success":output.status.success(),"exitCode":output.status.code(),"stdout":clip(&String::from_utf8_lossy(&output.stdout),16_000),"stderr":clip(&String::from_utf8_lossy(&output.stderr),16_000)}));
         if !output.status.success() {
             return Ok(
                 json!({"status":"failed","originalHead":original,"checks":checks,"message":"failed candidate preserved in integration worktree; collaboration branch not advanced"}),

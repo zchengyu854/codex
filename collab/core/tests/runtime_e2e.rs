@@ -15,6 +15,9 @@ use std::{
 };
 use tempfile::TempDir;
 use tokio::process::Command;
+#[path = "support/project.rs"]
+mod project;
+
 struct Mock {
     store: Arc<Store>,
     session: String,
@@ -76,16 +79,46 @@ async fn mock(
             .into_iter()
             .filter(|t| m.workers.contains(&t.request.agent_id))
             .collect::<Vec<_>>();
+        let independent: Vec<_> = tasks
+            .iter()
+            .filter(|t| t.request.dependencies.is_empty())
+            .collect();
+        let dependent = tasks.iter().find(|t| !t.request.dependencies.is_empty());
         match step {
-            0=>for(i,worker)in m.workers.iter().enumerate(){items.push(call(&body,"collab_create_task",json!({"agentId":worker,"goal":format!("Create worker{i}.txt containing worker{i} using the shell tool. Do not commit."),"acceptance":"file exists with requested content","coding":true,"dependencies":[]}),i));},
-            1=>for(i,t)in tasks.iter().enumerate(){items.push(call(&body,"collab_wait_task",json!({"taskId":t.id}),i));},
-            2=>for(i,t)in tasks.iter().enumerate(){items.push(call(&body,"collab_review_diff",json!({"taskId":t.id}),i));},
-            3=>for(i,t)in tasks.iter().enumerate(){assert_eq!(t.status,"completed","worker did not complete: {t:?}");items.push(call(&body,"collab_integrate",json!({"taskId":t.id,"expectedCommit":t.commit,"review":"Inspected requested single-file diff. Run configured verification before integration."}),i));},
-            _=>items.push(json!({"id":"msg_main","type":"message","role":"assistant","content":[{"type":"output_text","text":"All three worker results reviewed, tested and integrated."}]})),
+            0 => for (i, goal) in ["Normalize repeated whitespace in slug.py and extend its tests", "Accept integer strings in total.py and extend its tests"].iter().enumerate() {
+                items.push(call(&body, "collab_create_task", json!({"agentId":m.workers[i],"goal":goal,"acceptance":"existing and new unittest cases pass","coding":true,"dependencies":[]}), i));
+            },
+            1 => {
+                assert_eq!(independent.len(), 2);
+                items.push(call(&body, "collab_create_task", json!({"agentId":m.workers[2],"goal":"Add report.py CLI using slug and total, with tests","acceptance":"CLI prints hello-world:5 and rejects invalid integers","coding":true,"dependencies":independent.iter().map(|t| &t.id).collect::<Vec<_>>()}), 0));
+            },
+            2 => {
+                assert_eq!(dependent.unwrap().status, "queued", "dependency must wait for integration");
+                for (i,t) in independent.iter().enumerate() { items.push(call(&body,"collab_wait_task",json!({"taskId":t.id}),i)); }
+            },
+            3 | 6 => {
+                let targets = if step == 3 { independent } else { vec![dependent.unwrap()] };
+                for (i,t) in targets.iter().enumerate() {
+                    assert_eq!(t.status, "completed", "{t:?}");
+                    items.push(call(&body,"collab_review_diff",json!({"taskId":t.id}),i));
+                }
+            },
+            4 | 7 => {
+                let targets = if step == 4 { independent } else { vec![dependent.unwrap()] };
+                for (i,t) in targets.iter().enumerate() {
+                    items.push(call(&body,"collab_integrate",json!({"taskId":t.id,"expectedCommit":t.commit,"review":"Reviewed implementation and unittest changes; run the project's full suite."}),i));
+                }
+            },
+            5 => items.push(call(&body,"collab_wait_task",json!({"taskId":dependent.unwrap().id}),0)),
+            _ => items.push(json!({"id":"msg_main","type":"message","role":"assistant","content":[{"type":"output_text","text":"All code changes reviewed, tested and integrated."}]})),
         }
     } else if step == 0 {
-        let index = model.trim_start_matches("mock-worker");
-        let text = format!("printf 'worker{index}' > worker{index}.txt");
+        let index: usize = model.trim_start_matches("mock-worker").parse().unwrap();
+        let text = format!(
+            "/usr/bin/python3 -B - <<'PY'\nfrom pathlib import Path\nimport subprocess\nfor name, content in {}.items():\n    Path(name).write_text(content)\nsubprocess.run({}, check=True)\nPY",
+            project::patch(index),
+            serde_json::to_string(&project::CHECK).unwrap()
+        );
         let names = body["tools"].to_string();
         let (name, args) = if names.contains("exec_command") {
             ("exec_command", json!({"cmd":text,"yield_time_ms":1000}))
@@ -96,7 +129,7 @@ async fn mock(
         };
         items.push(call(&body, name, args, 0));
     } else {
-        items.push(json!({"id":"msg_worker","type":"message","role":"assistant","content":[{"type":"output_text","text":"Created and checked assigned file."}]}));
+        items.push(json!({"id":"msg_worker","type":"message","role":"assistant","content":[{"type":"output_text","text":"Changed implementation and passed the project unittest suite."}]}));
     }
     let data = if chat {
         let mut choices = vec![];
@@ -145,10 +178,22 @@ async fn git(path: &std::path::Path, args: &[&str]) {
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires installed Codex and local process execution; set CODEX_COLLAB_BIN to test a source-built executable"]
-async fn coordinator_delegates_three_workers_across_both_protocols_and_integrates() {
+async fn coordinator_integrates_a_tested_code_project_across_both_protocols() {
     let repo = TempDir::new().unwrap();
     git(repo.path(), &["init"]).await;
-    std::fs::write(repo.path().join("README.md"), "fixture").unwrap();
+    project::overlay(&project::fixture().join("base"), repo.path());
+    let baseline = Command::new(project::CHECK[0])
+        .args(&project::CHECK[1..])
+        .current_dir(repo.path())
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        baseline.status.success(),
+        "{}",
+        String::from_utf8_lossy(&baseline.stderr)
+    );
+    assert!(String::from_utf8_lossy(&baseline.stderr).contains("Ran 4 tests"));
     git(repo.path(), &["add", "."]).await;
     git(
         repo.path(),
@@ -171,7 +216,7 @@ async fn coordinator_delegates_three_workers_across_both_protocols_and_integrate
         secrets.clone(),
         PathBuf::from(std::env::var("CODEX_COLLAB_BIN").unwrap_or("codex".into())),
     );
-    let session=rt.dispatch("session/create",json!({"repository":repo.path(),"validation":[["/usr/bin/python3","-c","from pathlib import Path\nfiles=list(Path('.').glob('worker*.txt'))\nassert files\nassert all(p.read_text()==p.stem for p in files)\nassert Path('README.md').read_text()=='fixture'"]],"requirement":"Keep original checkout unchanged; create one file per worker."})).await.unwrap();
+    let session = rt.dispatch("session/create", json!({"repository":repo.path(),"validation":[project::CHECK],"requirement":"Keep the source checkout unchanged. Preserve existing tests and add coverage for each change."})).await.unwrap();
     let sid = session["id"].as_str().unwrap().to_owned();
     let main = id();
     let workers = (0..3).map(|_| id()).collect::<Vec<_>>();
@@ -222,7 +267,7 @@ async fn coordinator_delegates_three_workers_across_both_protocols_and_integrate
             .set(agent_id, Secret::new(format!("key-{model}")).unwrap())
             .unwrap();
     }
-    let task=store.create_task(TaskRequest{session_id:sid.clone(),agent_id:main,goal:"Delegate three independent coding tasks, review their diffs and integrate after validation.".into(),acceptance:"all three worker files integrated".into(),dependencies:vec![],coding:false,created_by:None}).unwrap();
+    let task=store.create_task(TaskRequest{session_id:sid.clone(),agent_id:main,goal:"Delegate two independent code changes, then a CLI task depending on both. Review diffs and integrate after unittest validation.".into(),acceptance:"all three code changes integrated and project tests pass".into(),dependencies:vec![],coding:false,created_by:None}).unwrap();
     let mut updates = rt.updates.subscribe();
     let scheduler = rt.start();
     let completed = tokio::time::timeout(std::time::Duration::from_secs(120), async {
@@ -259,25 +304,76 @@ async fn coordinator_delegates_three_workers_across_both_protocols_and_integrate
         assert_eq!(t.integration_status, "integrated", "{t:?}");
     }
     let integration = store.session(&sid).unwrap().integration_path;
-    for i in 0..3 {
-        assert_eq!(
-            std::fs::read_to_string(integration.join(format!("worker{i}.txt"))).unwrap(),
-            format!("worker{i}")
-        );
-        assert!(!repo.path().join(format!("worker{i}.txt")).exists());
+    let checked = Command::new(project::CHECK[0])
+        .args(&project::CHECK[1..])
+        .current_dir(&integration)
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        checked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&checked.stderr)
+    );
+    assert!(String::from_utf8_lossy(&checked.stderr).contains("Ran 11 tests"));
+    let source = Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(repo.path())
+        .output()
+        .await
+        .unwrap();
+    assert!(source.status.success() && source.stdout.is_empty());
+    assert!(!repo.path().join("report.py").exists());
+    for t in tasks.iter().filter(|t| t.request.coding) {
+        assert_eq!(t.request.created_by.as_deref(), Some(task.id.as_str()));
     }
     let events = store.events(&sid, 0, 1000).unwrap();
-    assert!(
-        events
+    let integrations: Vec<_> = events
+        .iter()
+        .filter(|e| e.kind == "integration" && e.data["status"] == "integrated")
+        .collect();
+    assert_eq!(integrations.len(), 3);
+    for event in &integrations {
+        let check = &event.data["evidence"]["checks"][0];
+        assert_eq!(check["command"], json!(project::CHECK));
+        assert_eq!(check["success"], true);
+        assert_eq!(check["exitCode"], 0);
+        assert!(check["stderr"].as_str().unwrap().contains("tests"));
+    }
+    let dependent = tasks
+        .iter()
+        .find(|t| t.request.dependencies.len() == 2)
+        .unwrap();
+    let started = events
+        .iter()
+        .find(|e| e.kind == "task_started" && e.task_id.as_deref() == Some(&dependent.id))
+        .unwrap();
+    for dependency in &dependent.request.dependencies {
+        let integrated = integrations
             .iter()
-            .filter(|e| e.kind == "integration" && e.data["status"] == "integrated")
-            .count()
-            == 3
-    );
+            .find(|e| e.task_id.as_ref() == Some(dependency))
+            .unwrap();
+        assert!(integrated.revision < started.revision);
+    }
+    let previous = &integrations[1].data["evidence"]["head"];
+    assert_eq!(dependent.base_commit.as_deref(), previous.as_str());
+    let mut head = session["baseCommit"].clone();
+    for event in &integrations {
+        assert_eq!(event.data["evidence"]["previousHead"], head);
+        head = event.data["evidence"]["head"].clone();
+    }
     assert!(
         !events
             .iter()
             .any(|e| e.data.to_string().contains("key-mock"))
     );
     assert!(mock_state.calls.lock().unwrap().len() == 4);
+    if let Ok(path) = std::env::var("CODEX_COLLAB_EVIDENCE") {
+        let evidence = json!({"mode":"local_mock_upstream_real_codex","real_provider_tested":false,"baseline_tests":4,"baselineCheck":{"command":project::CHECK,"exitCode":baseline.status.code(),"stdout":String::from_utf8_lossy(&baseline.stdout),"stderr":String::from_utf8_lossy(&baseline.stderr)},"final_tests":11,"finalCheck":{"command":project::CHECK,"exitCode":checked.status.code(),"stdout":String::from_utf8_lossy(&checked.stdout),"stderr":String::from_utf8_lossy(&checked.stderr)},"validation":project::CHECK,"tasks":tasks,"events":events,"source_repository_clean":true,"verdict":{"ok":true,"problems":[]}});
+        std::fs::write(
+            path,
+            format!("{}\n", serde_json::to_string_pretty(&evidence).unwrap()),
+        )
+        .unwrap();
+    }
 }

@@ -63,3 +63,5 @@ Responses 保留原协议，通过本地入口注入共享记录。Chat Completi
 ## 验证和合并
 
 主 Agent 读取指定提交的差异并提交 review/expectedCommit 后，宿主把结果 squash 到专用集成工作区，执行每个配置的验证命令（单项最多 300 秒）。验证通过且未改写候选文件时才提交、推进协作分支。过期基础提交上的成果同样在最新协作分支验证。不会推送远端或修改原项目主分支。
+
+集成结果的 `checks` 记录每条验证命令的 `command`、`success`、`exitCode`、`stdout` 与 `stderr`；进程被信号终止等没有退出码的情形，`exitCode` 为 `null`，不能当成成功。

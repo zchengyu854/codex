@@ -1,0 +1,31 @@
+{
+  "stage": "8",
+  "status": "8-1 complete; 8-2 and 8-3 pending",
+  "mode": "local_mock_upstream_real_codex",
+  "real_provider_tested": false,
+  "baseline_project_tests": 4,
+  "final_project_tests": 11,
+  "reviewed_integrations": 3,
+  "dependency_gate": "both dependencies integrated before dependent starts",
+  "source_repository_clean": true,
+  "regressions": [
+    "each feature rejects an incorrect implementation",
+    "real project tests reject a candidate without advancing the branch"
+  ],
+  "suite": {
+    "passed": 128,
+    "failed": 0,
+    "ignored": 0,
+    "clippy": "passed",
+    "format": "passed"
+  },
+  "evidence": [
+    "stage-8-code.json",
+    "stage-8-tests.log"
+  ],
+  "limits": [
+    "mock upstream scripts the model decisions; this does not prove real model performance",
+    "code conflict rework and cancellation/restart on this project remain for 8-2",
+    "real-provider verification remains for 8-3; no paid calls were made"
+  ]
+}

@@ -413,6 +413,12 @@ pub enum Action {
         pane: usize,
     },
     RefreshOutput,
+    /// Read `task/get` for the focused pane's latest task.
+    OpenDetail {
+        pane: usize,
+    },
+    /// Re-read the open detail view.
+    RefreshDetail,
     /// Read `session/list` and open the picker.
     OpenSessions,
     /// Rebuild the client against another persisted session.
@@ -463,6 +469,34 @@ pub struct SessionList {
     pub note: String,
 }
 
+/// One task's `task/get` snapshot: status, workspace, commits, dependencies and result metadata.
+///
+/// Every value comes from the host; a missing field is rendered empty rather than guessed. Only the
+/// full-result attachment is read from disk, and only through the path the host already published.
+pub struct DetailForm {
+    pub pane: usize,
+    pub task_id: String,
+    pub status: String,
+    pub coding: bool,
+    pub context_version: i64,
+    pub goal: String,
+    pub acceptance: String,
+    pub worktree: String,
+    pub base_commit: String,
+    pub commit: String,
+    pub integration: String,
+    /// Dependencies as (short id, status label) pairs.
+    pub dependencies: Vec<(String, String)>,
+    /// Reason from the `task_blocked` event, when this client has seen one.
+    pub blocked: String,
+    pub result: String,
+    /// Attachment inventory line (label, size, path).
+    pub artifacts: String,
+    /// Locally read full-result attachment, clipped.
+    pub body: String,
+    pub scroll: usize,
+}
+
 /// Task output view (`task/output`): the persisted result summary, the running public draft and the
 /// full-result attachment the client reads locally.
 pub struct OutputForm {
@@ -473,6 +507,8 @@ pub struct OutputForm {
     pub draft: String,
     /// Locally read attachment body, clipped; empty while the attachment does not exist yet.
     pub body: String,
+    /// Locally read file-diff attachment, clipped; empty for non-coding tasks.
+    pub diff: String,
     /// Attachment inventory line (label, size, path).
     pub artifacts: String,
     pub scroll: usize,
@@ -592,6 +628,7 @@ pub struct App {
     pub task: Option<TaskForm>,
     pub output: Option<OutputForm>,
     pub sessions: Option<SessionList>,
+    pub detail: Option<DetailForm>,
     pub coding: bool,
 }
 
@@ -629,6 +666,7 @@ impl App {
             task: None,
             output: None,
             sessions: None,
+            detail: None,
             coding: false,
         }
     }
@@ -744,6 +782,7 @@ impl App {
             task: None,
             output: None,
             sessions: None,
+            detail: None,
             coding: false,
         }
     }
@@ -777,6 +816,10 @@ impl App {
         // Quit must work even while a modal owns the keyboard.
         if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('q') {
             self.confirm_quit = true;
+            return false;
+        }
+        if self.detail.is_some() {
+            self.detail_key(key);
             return false;
         }
         if self.sessions.is_some() {
@@ -845,6 +888,7 @@ impl App {
                 KeyCode::Char('p') if self.mode == Mode::Live => self.open_compact(),
                 KeyCode::Char('n') if self.mode == Mode::Live => self.open_create(),
                 KeyCode::Char('l') if self.mode == Mode::Live => self.open_sessions(),
+                KeyCode::Char('d') if self.mode == Mode::Live => self.open_detail(),
                 KeyCode::Char('c') => self.stop(),
                 _ => {}
             }
@@ -1031,6 +1075,44 @@ impl App {
         }
     }
 
+    /// Ask the client to read `task/get` for the focused pane's latest task (live mode).
+    fn open_detail(&mut self) {
+        if self.panes[self.focused].agent_id.is_none() {
+            self.feedback = "该窗格尚未配置 Agent，没有任务详情。".into();
+            return;
+        }
+        self.outbox.push(Action::OpenDetail { pane: self.focused });
+        self.feedback = "正在读取任务详情…".into();
+    }
+
+    /// Keys while the task detail view is open. Page keys scroll, Ctrl+R re-reads the snapshot.
+    fn detail_key(&mut self, key: KeyEvent) {
+        if self.detail.is_none() {
+            return;
+        }
+        match key.code {
+            KeyCode::Esc => {
+                self.detail = None;
+                self.feedback = "已关闭任务详情。".into();
+            }
+            KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.outbox.push(Action::RefreshDetail);
+                self.feedback = "正在刷新任务详情…".into();
+            }
+            KeyCode::PageUp => {
+                if let Some(form) = self.detail.as_mut() {
+                    form.scroll = form.scroll.saturating_sub(10);
+                }
+            }
+            KeyCode::PageDown => {
+                if let Some(form) = self.detail.as_mut() {
+                    form.scroll = form.scroll.saturating_add(10);
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// Ask the client to read `session/list` and open the picker (live mode).
     fn open_sessions(&mut self) {
         self.outbox.push(Action::OpenSessions);
@@ -1087,6 +1169,7 @@ impl App {
         self.approvals.clear();
         self.approval_index = 0;
         self.output = None;
+        self.detail = None;
         self.task = None;
         self.review = None;
         self.compact = None;
@@ -2206,6 +2289,7 @@ mod tests {
             result: "已完成一半".into(),
             draft: "正在写…".into(),
             body: String::new(),
+            diff: String::new(),
             artifacts: "full result · 12 字节 · /tmp/x.txt".into(),
             scroll: 0,
             live: true,
@@ -2784,6 +2868,56 @@ mod tests {
         assert_eq!(app.task.as_ref().unwrap().goal.text, "第一行\nX第二行 tab");
         assert_eq!(app.task.as_ref().unwrap().acceptance, "", "no stray text");
     }
+    fn detail_form() -> DetailForm {
+        DetailForm {
+            pane: 1,
+            task_id: "aaaaaaaa-1111-4111-8111-111111111111".into(),
+            status: "等待依赖".into(),
+            coding: true,
+            context_version: 7,
+            goal: "实现重试".into(),
+            acceptance: "测试通过".into(),
+            worktree: "/tmp/wt".into(),
+            base_commit: "89461ea68338".into(),
+            commit: String::new(),
+            integration: "未集成".into(),
+            dependencies: vec![("bbbbbbbb…".into(), "已完成".into())],
+            blocked: "dependency did not complete".into(),
+            result: String::new(),
+            artifacts: String::new(),
+            body: String::new(),
+            scroll: 0,
+        }
+    }
+    #[test]
+    fn detail_view_opens_only_for_a_task_and_scrolls() {
+        let mut app = App::live();
+        app.key(ctrl('d'));
+        assert!(app.outbox.is_empty(), "an unconfigured pane has no task");
+        assert!(app.feedback.contains("尚未配置"));
+        app.panes[0].agent_id = Some("c".into());
+        app.key(ctrl('d'));
+        assert!(matches!(
+            app.outbox.as_slice(),
+            [Action::OpenDetail { pane: 0 }]
+        ));
+        app.outbox.clear();
+        app.detail = Some(detail_form());
+        app.key(press(KeyCode::PageDown));
+        assert_eq!(app.detail.as_ref().unwrap().scroll, 10);
+        app.key(press(KeyCode::PageUp));
+        app.key(press(KeyCode::PageUp));
+        assert_eq!(app.detail.as_ref().unwrap().scroll, 0);
+        app.key(ctrl('r'));
+        assert!(matches!(app.outbox.as_slice(), [Action::RefreshDetail]));
+        app.key(press(KeyCode::Esc));
+        assert!(app.detail.is_none());
+        assert!(app.feedback.contains("已关闭"));
+        // Demo mode has no host snapshot to read.
+        let mut app = App::demo();
+        app.key(ctrl('d'));
+        assert!(app.outbox.is_empty() && app.detail.is_none());
+    }
     fn session_picker() -> SessionList {
         SessionList {
             items: vec![
@@ -2887,6 +3021,7 @@ mod tests {
             result: "r".into(),
             draft: String::new(),
             body: String::new(),
+            diff: String::new(),
             artifacts: String::new(),
             scroll: 0,
             live: false,

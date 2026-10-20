@@ -1,4 +1,4 @@
-›_ codex-collab  会话 1cae5a23…
+›_ codex-collab  会话 8f3d9a85…
 左侧主控 / 右侧三个工作终端
 ┌ ▶ 1 主控 · planner-model [空闲] ────────────────────────┐┌ 2 工作1 · — [未配置] ─────────────────────────────────────────────────┐
 │https://example.invalid/v1 / Responses · 65536 字节预算  ││— / —                                                                  │
@@ -8,13 +8,13 @@
 │                                                         ││                                                                       │
 │                                                         ││❯                                                                      │
 │          ┌ 会话列表 · session/list 切换会话 ──────────────────────────────────────────────────────────────────────────┐──────────┘
-│          │▸ ● 1cae5a23… · 验证 1 条  · 当前                                                                           │──────────┐
-│          │  ○ c101be89… · 验证 2 条                                                                                   │          │
-│          │  ○ 1f85cecd… · 验证 2 条                                                                                   │          │
+│          │▸ ● 8f3d9a85… · 验证 1 条  · 当前                                                                           │──────────┐
+│          │  ○ eaa38c29… · 验证 2 条                                                                                   │          │
+│          │  ○ 569cab88… · 验证 2 条                                                                                   │          │
 │          │                                                                                                            │          │
 │          │仓库 /private/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/codex-collab-sn…                              │          │
-│          │分支 codex/collab-1cae5a23-ea95-4d45-a6c6-53b089fc5937                                                      │          │
-│          │基线 d32ae49e4ae6…                                                                                          │          │
+│          │分支 codex/collab-8f3d9a85-3abc-4811-81ea-838429d250a5                                                      │          │
+│          │基线 d0bab2b722c6…                                                                                          │          │
 │          │用户约束 1 条：                                                                                             │          │
 │          │[用户] keep the public API stable                                                                           │──────────┘
 │          │↑/↓ 选择 · Enter 切换 · Ctrl+R 重新读取 · Esc 关闭                                                          │──────────┐
@@ -25,6 +25,6 @@
 │                                                         ││                                                                       │
 │❯                                                        ││❯                                                                      │
 └─────────────────────────────────────────────────────────┘└───────────────────────────────────────────────────────────────────────┘
-[1 主控] 编码:关  Tab 焦点  F2 放大  F3 共享  Ctrl+A 配置  Ctrl+L 会话  Ctrl+R 刷新  Ctrl+C 停止  Ctrl+Q 退出
-Ctrl+T 自检  Ctrl+U 约束  Ctrl+O 结果  Ctrl+F 编排  Ctrl+E 编码  Ctrl+G 审查集成  Ctrl+P 压缩  Ctrl+N 新建  Ctrl+K 密钥
+[1 主控] 编码:关  Tab 焦点  F2 放大  F3 共享  Ctrl+A 配置  Ctrl+L 会话  Ctrl+K 密钥  Ctrl+R 刷新  Ctrl+C 停止  Ctrl+Q 退出
+Ctrl+T 自检  Ctrl+U 约束  Ctrl+O 结果  Ctrl+D 详情  Ctrl+F 编排  Ctrl+E 编码  Ctrl+G 审查集成  Ctrl+P 压缩  Ctrl+N 新建
 共 3 个会话：↑/↓ 选择，Enter 切换。

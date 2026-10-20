@@ -3,9 +3,9 @@
 //! The client owns the host process, tracks in-flight requests by id, and applies responses and
 //! `collab/update` notifications to the [`App`]. It never reads the database or model adapters.
 use crate::app::{
-    ACCENT, Action, AgentForm, App, ApprovalItem, CompactForm, CreateForm, Dependency, GREEN,
-    MUTED, OutputForm, Pane, PublishForm, ReviewForm, SessionItem, SessionList, TaskForm, TextBuf,
-    WARN, line, publish_kind_label,
+    ACCENT, Action, AgentForm, App, ApprovalItem, CompactForm, CreateForm, Dependency, DetailForm,
+    GREEN, MUTED, OutputForm, Pane, PublishForm, ReviewForm, SessionItem, SessionList, TaskForm,
+    TextBuf, WARN, line, publish_kind_label,
 };
 use crate::host::{Host, HostEvent};
 use ratatui::style::Color;
@@ -80,6 +80,11 @@ enum Pending {
     Compose {
         pane: usize,
     },
+    /// A `task/get` read for the detail view.
+    Detail {
+        pane: usize,
+        task_id: String,
+    },
     Output {
         pane: usize,
         task_id: String,
@@ -119,6 +124,8 @@ pub struct Client {
     output_poll: Option<Instant>,
     /// Requirement excerpts per session, cached so reopening the picker does not rescan.
     requirements: HashMap<String, Vec<String>>,
+    /// Last `task_blocked` reason per task, so the detail view can explain a blocked task.
+    blocked_reason: HashMap<String, String>,
     /// Incremented per picker open; a scan answer from an older list is ignored.
     scan_generation: u64,
 }
@@ -138,6 +145,7 @@ impl Client {
             probe: None,
             output_poll: None,
             requirements: HashMap::new(),
+            blocked_reason: HashMap::new(),
             scan_generation: 0,
         }
     }
@@ -164,6 +172,7 @@ impl Client {
         self.task_of_agent.clear();
         self.task_status.clear();
         self.artifacts.clear();
+        self.blocked_reason.clear();
         self.compact_retry = None;
         self.probe = None;
         self.output_poll = None;
@@ -470,6 +479,22 @@ impl Client {
                 }
                 self.refresh_lists(app);
             }
+            Pending::Detail { pane, task_id } => {
+                let blocked = self
+                    .blocked_reason
+                    .get(&task_id)
+                    .cloned()
+                    .unwrap_or_default();
+                let mut form =
+                    build_detail(pane, task_id.clone(), &value, &blocked, &self.task_status);
+                form.artifacts = self.artifact_inventory(&task_id);
+                form.body = self.read_attachment(&task_id, "full result");
+                app.detail = Some(form);
+                app.feedback = format!(
+                    "任务 {} 详情已加载：PgUp/PgDn 滚动，Ctrl+R 刷新。",
+                    short(&task_id)
+                );
+            }
             Pending::Compose { pane } => {
                 let note = if value.as_array().is_some_and(|tasks| tasks.is_empty()) {
                     "本会话还没有任务；依赖留空或先派发一个任务。".to_owned()
@@ -607,8 +632,12 @@ impl Client {
             }
             "task_blocked" => {
                 // The host only emits this once a dependency failed; the task will not retry.
+                let reason = clip(data["reason"].as_str().unwrap_or(""), 160);
+                if let Some(task_id) = event["taskId"].as_str() {
+                    self.blocked_reason
+                        .insert(task_id.to_owned(), reason.clone());
+                }
                 if let Some(index) = agent.and_then(|a| app.pane_of(a)) {
-                    let reason = clip(data["reason"].as_str().unwrap_or(""), 160);
                     let text = if reason.is_empty() {
                         "[依赖] 任务已阻塞：前置任务未完成。".to_owned()
                     } else {
@@ -841,6 +870,39 @@ impl Client {
                     "context/compact",
                     json!({"sessionId": session, "summary": summary, "expectedRevision": expected_revision}),
                     Pending::Compacted { summary },
+                );
+            }
+            Action::OpenDetail { pane } => {
+                let Some(agent) = app.panes[pane].agent_id.clone() else {
+                    app.feedback = "该窗格尚未配置 Agent，没有任务详情。".into();
+                    return;
+                };
+                let Some(task_id) = self.task_of_agent.get(&agent).cloned() else {
+                    app.feedback = "该窗格还没有任务详情。".into();
+                    return;
+                };
+                app.feedback = "正在读取任务详情…".into();
+                self.request(
+                    app,
+                    "task/get",
+                    json!({"taskId": task_id.clone()}),
+                    Pending::Detail { pane, task_id },
+                );
+            }
+            Action::RefreshDetail => {
+                let Some((pane, task_id)) = app
+                    .detail
+                    .as_ref()
+                    .map(|form| (form.pane, form.task_id.clone()))
+                else {
+                    return;
+                };
+                app.feedback = "正在刷新任务详情…".into();
+                self.request(
+                    app,
+                    "task/get",
+                    json!({"taskId": task_id.clone()}),
+                    Pending::Detail { pane, task_id },
                 );
             }
             Action::OpenSessions => {
@@ -1085,6 +1147,7 @@ impl Client {
             result: value["result"].as_str().unwrap_or("").to_owned(),
             draft: value["draft"]["text"].as_str().unwrap_or("").to_owned(),
             body,
+            diff: self.read_attachment(task_id, "file diff"),
             artifacts: self.artifact_inventory(task_id),
             scroll,
             live: active,
@@ -1265,6 +1328,64 @@ fn build_agent_form(app: &App, pane: usize) -> AgentForm {
         } else {
             format!("为窗格 {} 新增 Agent（角色由位置决定）。", pane + 1)
         },
+    }
+}
+
+/// Build the detail view from a `task/get` snapshot.
+///
+/// The host owns every value; absent optional fields stay empty so the renderer can show `—` rather
+/// than inventing a worktree, commit or integration state. Dependency labels come from the last
+/// `task/list` snapshot, which is normally current because the host broadcasts `task_changed`.
+fn build_detail(
+    pane: usize,
+    task_id: String,
+    task: &Value,
+    blocked: &str,
+    statuses: &HashMap<String, String>,
+) -> DetailForm {
+    let dependencies = task["dependencies"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(|id| {
+            let status = statuses
+                .get(id)
+                .map(|raw| status_label(raw).to_owned())
+                .unwrap_or_else(|| "—".to_owned());
+            (short(id), status)
+        })
+        .collect();
+    DetailForm {
+        pane,
+        task_id: task["id"].as_str().map(str::to_owned).unwrap_or(task_id),
+        status: status_label(task["status"].as_str().unwrap_or("")).into(),
+        coding: task["coding"].as_bool().unwrap_or(false),
+        context_version: task["contextVersion"].as_i64().unwrap_or(0),
+        goal: task["goal"].as_str().unwrap_or("").to_owned(),
+        acceptance: task["acceptance"].as_str().unwrap_or("").to_owned(),
+        worktree: task["worktree"].as_str().unwrap_or("").to_owned(),
+        base_commit: task["baseCommit"].as_str().unwrap_or("").to_owned(),
+        commit: task["commit"].as_str().unwrap_or("").to_owned(),
+        integration: integration_label(task["integrationStatus"].as_str().unwrap_or("")),
+        dependencies,
+        blocked: blocked.to_owned(),
+        result: task["result"].as_str().unwrap_or("").to_owned(),
+        artifacts: String::new(),
+        body: String::new(),
+        scroll: 0,
+    }
+}
+
+/// Display label for a task's `integrationStatus`.
+fn integration_label(status: &str) -> String {
+    match status {
+        "integrated" => "已集成".to_owned(),
+        "pending" | "" => "未集成".to_owned(),
+        "conflict" => "存在冲突".to_owned(),
+        "failed" => "集成失败".to_owned(),
+        "interrupted" => "集成中断".to_owned(),
+        other => other.to_owned(),
     }
 }
 
@@ -1614,6 +1735,82 @@ mod tests {
         assert_eq!(event_text(&json!({"text":"hi"})), "hi");
         assert_eq!(event_text(&json!({"summary":"sum"})), "sum");
         assert_eq!(event_text(&json!({"other":1})), "{\"other\":1}");
+    }
+
+    #[test]
+    fn detail_maps_every_host_field_and_labels_dependencies() {
+        let mut app = App::live();
+        apply_agents(
+            &mut app,
+            &[
+                json!({"id":"w1","role":"worker","model":"code","baseUrl":"https://b","protocol":"responses"}),
+            ],
+        );
+        let task = json!({
+            "id":"t1","agentId":"w1","sessionId":"s","goal":"实现重试\n第二行","acceptance":"测试通过",
+            "dependencies":["d1","d2"],"coding":true,"status":"completed","contextVersion":7,
+            "worktree":"/tmp/wt/t1","baseCommit":"89461ea68338","commit":"abc123",
+            "result":"已提交","integrationStatus":"pending"
+        });
+        let mut statuses = HashMap::new();
+        statuses.insert("d1".to_owned(), "completed".to_owned());
+        let form = build_detail(1, "t1".into(), &task, "blocked reason", &statuses);
+        assert_eq!(form.pane, 1);
+        assert_eq!(form.task_id, "t1");
+        assert_eq!(form.status, "已完成");
+        assert!(form.coding);
+        assert_eq!(form.context_version, 7);
+        assert_eq!(form.goal, "实现重试\n第二行");
+        assert_eq!(form.acceptance, "测试通过");
+        assert_eq!(form.worktree, "/tmp/wt/t1");
+        assert_eq!(form.base_commit, "89461ea68338");
+        assert_eq!(form.commit, "abc123");
+        assert_eq!(form.integration, "未集成");
+        assert_eq!(form.blocked, "blocked reason");
+        assert_eq!(form.result, "已提交");
+        assert_eq!(form.dependencies.len(), 2);
+        assert!(
+            form.dependencies[0].0.ends_with('…'),
+            "{:?}",
+            form.dependencies[0]
+        );
+        assert_eq!(form.dependencies[0].1, "已完成");
+        assert_eq!(
+            form.dependencies[1].1, "—",
+            "a dependency missing from task/list is not guessed"
+        );
+
+        // A minimal snapshot leaves optional fields empty instead of inventing them.
+        let form = build_detail(
+            0,
+            "t2".into(),
+            &json!({"id":"t2","status":"queued"}),
+            "",
+            &statuses,
+        );
+        assert_eq!(form.worktree, "");
+        assert_eq!(form.commit, "");
+        assert_eq!(form.base_commit, "");
+        assert_eq!(form.integration, "未集成");
+        assert_eq!(form.context_version, 0);
+        assert!(form.dependencies.is_empty() && form.result.is_empty());
+        assert_eq!(form.status, "排队");
+        assert_eq!(form.task_id, "t2");
+
+        // The task id falls back to the requested one when the payload omits it.
+        let form = build_detail(0, "t3".into(), &json!({}), "", &statuses);
+        assert_eq!(form.task_id, "t3");
+    }
+
+    #[test]
+    fn integration_status_labels_cover_every_host_value() {
+        assert_eq!(integration_label("integrated"), "已集成");
+        assert_eq!(integration_label("pending"), "未集成");
+        assert_eq!(integration_label(""), "未集成");
+        assert_eq!(integration_label("conflict"), "存在冲突");
+        assert_eq!(integration_label("failed"), "集成失败");
+        assert_eq!(integration_label("interrupted"), "集成中断");
+        assert_eq!(integration_label("something"), "something");
     }
 
     #[test]

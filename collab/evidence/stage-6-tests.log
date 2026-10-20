@@ -1,7 +1,8 @@
 # stage 6 parameter coverage tests
-Tue Oct 20 10:36:36 CST 2026
+Tue Oct 20 10:47:51 CST 2026
 ## workspace tests
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+   Compiling codex-collab-tui v0.1.0 (/Users/Apple/Documents/ZcyCode/codex-collab/collab/tui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.36s
      Running unittests src/lib.rs (collab/target/debug/deps/codex_collab_core-5ceeb60cddd00170)
 
 running 0 tests
@@ -33,19 +34,19 @@ test validation_cannot_sneak_unreviewed_changes_into_commit ... ok
 test conflicting_change_pauses_without_advancing_branch ... ok
 test worktrees_exclude_dirty_original_and_revalidate_stale_results ... ok
 
-test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.77s
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.81s
 
      Running tests/protocol.rs (collab/target/debug/deps/protocol-950d8c3cd03c02ae)
 
 running 9 tests
 test secret_never_serializes_and_redaction_covers_repeats ... ok
-test sse_decoder_handles_fragmentation_crlf_and_utf8 ... ok
 test sse_mixed_line_endings_keep_frame_order ... ok
+test sse_decoder_handles_fragmentation_crlf_and_utf8 ... ok
 test rejects_unsupported_capabilities ... ok
 test converts_roles_tools_and_full_tool_history ... ok
+test namespaced_custom_tool_roundtrip ... ok
 test stream_redaction_handles_keys_split_at_every_boundary ... ok
 test rejects_incomplete_and_unknown_output ... ok
-test namespaced_custom_tool_roundtrip ... ok
 test assembles_fragmented_calls_text_and_usage ... ok
 
 test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
@@ -56,7 +57,7 @@ running 2 tests
 test cancel_while_awaiting_approval_cleans_up_and_rejects_late_choice ... ok
 test routes_approval_to_exact_agent_and_redacts_local_credentials ... ok
 
-test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.48s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.86s
 
      Running tests/runtime_e2e.rs (collab/target/debug/deps/runtime_e2e-61912d4d3cdb6cd1)
 
@@ -72,35 +73,36 @@ test api_url_rejects_embedded_keys_and_remote_plaintext ... ok
 test enforces_roles_and_four_agents ... ok
 test cannot_reconfigure_running_or_move_agent ... ok
 test cross_session_dependencies_rejected ... ok
-test failed_dependencies_block_and_cancel_wins_over_late_completion ... ok
-test approval_rejects_stale_user_choice_after_cancel ... ok
-test budget_does_not_silently_drop_constraints ... ok
 test dependencies_require_coding_integration ... ok
+test approval_rejects_stale_user_choice_after_cancel ... ok
+test failed_dependencies_block_and_cancel_wins_over_late_completion ... ok
+test budget_does_not_silently_drop_constraints ... ok
 test prevents_two_hosts_recovering_same_state ... ok
 test versioned_context_retains_user_overrides_and_checkpoint_audit ... ok
 test recovery_does_not_replay_running_tasks ... ok
 test queue_limits_and_one_task_per_agent ... ok
 
-test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
 
      Running unittests src/main.rs (collab/target/debug/deps/codex_collab_tui-05268d5c50941c6f)
 
-running 81 tests
-test app::tests::base_url_check_mirrors_the_host_rule ... ok
+running 86 tests
 test app::tests::agent_form_toggles_protocol_cycles_fields_and_cancels ... ok
+test app::tests::compact_form_carries_the_probed_revision ... ok
 test app::tests::coding_toggle_is_carried_into_task_creation ... ok
+test app::tests::base_url_check_mirrors_the_host_rule ... ok
 test app::tests::agent_form_requires_a_valid_endpoint_and_submits ... ok
 test app::tests::approval_modal_cycles_and_decides ... ok
 test app::tests::agent_form_paste_is_sanitized_per_field ... ok
 test app::tests::agent_form_rejects_empty_model_bad_url_and_budget ... ok
-test app::tests::compact_form_carries_the_probed_revision ... ok
 test app::tests::credential_form_delete_and_cancel ... ok
-test app::tests::credential_form_is_masked_and_submits ... ok
-test app::tests::credential_form_needs_a_configured_agent ... ok
 test app::tests::create_form_requires_repository_and_validation ... ok
 test app::tests::create_form_parses_validation_and_submits ... ok
-test app::tests::live_cancel_and_refresh_use_the_outbox ... ok
+test app::tests::credential_form_is_masked_and_submits ... ok
+test app::tests::credential_form_needs_a_configured_agent ... ok
+test app::tests::detail_view_opens_only_for_a_task_and_scrolls ... ok
 test app::tests::focus_cycles_and_keeps_each_input ... ok
+test app::tests::live_cancel_and_refresh_use_the_outbox ... ok
 test app::tests::live_send_queues_an_action_without_touching_history ... ok
 test app::tests::output_view_opens_scrolls_refreshes_and_closes ... ok
 test app::tests::pane_input_edits_at_the_caret ... ok
@@ -112,16 +114,16 @@ test app::tests::quit_requires_confirmation_and_escape_cancels ... ok
 test app::tests::quit_works_while_a_modal_is_open ... ok
 test app::tests::publish_form_escape_cancels_and_paste_is_sanitized ... ok
 test app::tests::reset_session_view_drops_previous_session_data ... ok
-test app::tests::review_cancel_returns_to_normal_input ... ok
 test app::tests::paste_sanitizes_control_characters_and_preserves_unicode ... ok
+test app::tests::review_cancel_returns_to_normal_input ... ok
 test app::tests::review_requires_a_conclusion_then_integrates ... ok
 test app::tests::send_is_local_and_never_starts_a_model ... ok
-test app::tests::session_picker_is_live_only_and_esc_closes ... ok
 test app::tests::session_picker_switches_only_to_another_session ... ok
+test app::tests::session_picker_is_live_only_and_esc_closes ... ok
 test app::tests::stop_does_not_affect_other_panes ... ok
 test app::tests::task_editor_enter_inserts_newlines_and_space_stays_text ... ok
-test app::tests::task_editor_maps_fields_and_submits_the_full_parameter_set ... ok
 test app::tests::task_editor_caps_dependencies_at_the_limit ... ok
+test app::tests::task_editor_maps_fields_and_submits_the_full_parameter_set ... ok
 test app::tests::task_editor_opens_only_for_a_configured_pane ... ok
 test app::tests::task_editor_paste_keeps_newlines_and_ignores_text_in_the_list ... ok
 test app::tests::task_editor_requires_a_goal_and_an_acceptance ... ok
@@ -130,18 +132,20 @@ test app::tests::pane_input_history_is_bounded_and_per_pane ... ok
 test app::tests::zoom_shared_and_scroll_are_independent ... ok
 test client::tests::agent_form_generates_a_uuid_for_an_empty_pane ... ok
 test client::tests::agent_form_prefills_an_existing_agent_and_pane_zero_is_the_coordinator ... ok
-test app::tests::history_is_bounded_and_empty_input_does_not_send ... ok
-test client::tests::approval_detail_handles_missing_and_long_values ... ok
 test client::tests::agents_map_to_one_coordinator_and_three_workers ... ok
+test client::tests::approval_detail_handles_missing_and_long_values ... ok
 test client::tests::approvals_apply_and_clamp_index ... ok
-test client::tests::build_review_requires_a_completed_coding_task ... ok
 test client::tests::compact_form_reopens_with_summary_and_note ... ok
 test client::tests::create_form_prefills_from_options ... ok
+test client::tests::build_review_requires_a_completed_coding_task ... ok
 test client::tests::create_session_params_omit_an_empty_requirement ... ok
+test client::tests::integration_status_labels_cover_every_host_value ... ok
 test client::tests::event_text_prefers_known_fields_and_falls_back_to_json ... ok
+test client::tests::detail_maps_every_host_field_and_labels_dependencies ... ok
+test app::tests::history_is_bounded_and_empty_input_does_not_send ... ok
 test client::tests::probe_outcome_reports_progress_and_verdict ... ok
-test client::tests::requirement_lines_keep_only_the_newest_user_constraints ... ok
 test client::tests::revision_conflict_is_classified ... ok
+test client::tests::requirement_lines_keep_only_the_newest_user_constraints ... ok
 test client::tests::session_items_mark_the_current_session_and_degrade_safely ... ok
 test client::tests::short_id_is_utf8_safe_for_ascii_uuids ... ok
 test client::tests::status_and_protocol_labels_are_bounded ... ok
@@ -149,26 +153,28 @@ test client::tests::task_form_starts_from_the_coding_toggle_and_empty_text ... o
 test client::tests::task_form_labels_progress_and_refuses_unusable_dependencies ... ok
 test host::tests::real_host_drives_session_and_agent_listing ... ignored, requires a built codex-collab-core binary
 test host::tests::classify_distinguishes_notifications_from_responses ... ok
+test ui::tests::diff_highlighting_classifies_lines_and_survives_odd_input ... ok
 test ui::tests::empty_and_oversized_session_picker_renders_without_panicking ... ok
+test ui::tests::agent_modal_renders_identity_endpoint_and_budget ... ok
 test ui::tests::layout_has_one_tall_coordinator_and_three_worker_panes ... ok
 test ui::tests::footer_key_hints_fit_the_demo_frame ... ok
-test ui::tests::agent_modal_renders_identity_endpoint_and_budget ... ok
-test ui::tests::full_layout_renders_all_models_and_demo_boundary ... ok
-test ui::tests::narrow_terminal_and_zoom_show_only_focused_model ... ok
 test ui::tests::empty_and_oversized_task_modals_render_without_panicking ... ok
-test ui::tests::compact_and_create_modals_render ... ok
+test ui::tests::full_layout_renders_all_models_and_demo_boundary ... ok
+test ui::tests::detail_modal_renders_workspace_dependencies_and_blocked_reason ... ok
+test host::tests::request_and_response_round_trip_through_a_subprocess ... ok
 test ui::tests::approval_and_credential_modals_render_masked ... ok
 test ui::tests::output_modal_renders_result_draft_and_attachments ... ok
 test ui::tests::publish_modal_renders_kind_selector_and_content ... ok
-test ui::tests::unicode_input_window_fits_without_cutting_utf8 ... ok
+test ui::tests::narrow_terminal_and_zoom_show_only_focused_model ... ok
 test ui::tests::review_modal_renders_diff_and_conclusion ... ok
+test ui::tests::unicode_input_window_fits_without_cutting_utf8 ... ok
+test ui::tests::compact_and_create_modals_render ... ok
 test ui::tests::task_modal_renders_goal_acceptance_dependencies_and_the_caret ... ok
-test host::tests::request_and_response_round_trip_through_a_subprocess ... ok
 test ui::tests::resize_clamps_history_offset_and_shared_records_render ... ok
 test ui::tests::session_picker_renders_current_marker_and_requirements ... ok
 test ui::tests::tiny_sizes_and_quit_popup_do_not_panic ... ok
 
-test result: ok. 80 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.07s
+test result: ok. 85 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.09s
 
    Doc-tests codex_collab_core
 
@@ -178,25 +184,26 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 ## tui opt-in tests
    Compiling codex-collab-tui v0.1.0 (/Users/Apple/Documents/ZcyCode/codex-collab/collab/tui)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.75s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.95s
      Running unittests src/main.rs (collab/target/debug/deps/codex_collab_tui-aad1159fab20d91a)
 
-running 81 tests
-test app::tests::coding_toggle_is_carried_into_task_creation ... ok
+running 86 tests
 test app::tests::agent_form_paste_is_sanitized_per_field ... ok
-test app::tests::compact_form_carries_the_probed_revision ... ok
 test app::tests::agent_form_toggles_protocol_cycles_fields_and_cancels ... ok
-test app::tests::approval_modal_cycles_and_decides ... ok
+test app::tests::compact_form_carries_the_probed_revision ... ok
 test app::tests::base_url_check_mirrors_the_host_rule ... ok
+test app::tests::coding_toggle_is_carried_into_task_creation ... ok
 test app::tests::agent_form_requires_a_valid_endpoint_and_submits ... ok
+test app::tests::approval_modal_cycles_and_decides ... ok
 test app::tests::agent_form_rejects_empty_model_bad_url_and_budget ... ok
-test app::tests::create_form_requires_repository_and_validation ... ok
 test app::tests::create_form_parses_validation_and_submits ... ok
+test app::tests::create_form_requires_repository_and_validation ... ok
 test app::tests::credential_form_delete_and_cancel ... ok
 test app::tests::credential_form_is_masked_and_submits ... ok
 test app::tests::credential_form_needs_a_configured_agent ... ok
-test app::tests::live_send_queues_an_action_without_touching_history ... ok
 test app::tests::live_cancel_and_refresh_use_the_outbox ... ok
+test app::tests::live_send_queues_an_action_without_touching_history ... ok
+test app::tests::detail_view_opens_only_for_a_task_and_scrolls ... ok
 test app::tests::output_view_opens_scrolls_refreshes_and_closes ... ok
 test app::tests::focus_cycles_and_keeps_each_input ... ok
 test app::tests::pane_input_edits_at_the_caret ... ok
@@ -204,80 +211,84 @@ test app::tests::pane_input_edits_multibyte_text_at_char_boundaries ... ok
 test app::tests::probe_needs_a_configured_agent_then_queues ... ok
 test app::tests::pane_input_recalls_sent_lines_and_restores_the_draft ... ok
 test app::tests::publish_form_toggles_kind_and_requires_content ... ok
-test app::tests::quit_works_while_a_modal_is_open ... ok
-test app::tests::publish_form_escape_cancels_and_paste_is_sanitized ... ok
 test app::tests::quit_requires_confirmation_and_escape_cancels ... ok
-test app::tests::reset_session_view_drops_previous_session_data ... ok
+test app::tests::publish_form_escape_cancels_and_paste_is_sanitized ... ok
+test app::tests::quit_works_while_a_modal_is_open ... ok
 test app::tests::paste_sanitizes_control_characters_and_preserves_unicode ... ok
+test app::tests::reset_session_view_drops_previous_session_data ... ok
 test app::tests::review_cancel_returns_to_normal_input ... ok
 test app::tests::review_requires_a_conclusion_then_integrates ... ok
 test app::tests::send_is_local_and_never_starts_a_model ... ok
-test app::tests::session_picker_switches_only_to_another_session ... ok
 test app::tests::session_picker_is_live_only_and_esc_closes ... ok
-test app::tests::task_editor_caps_dependencies_at_the_limit ... ok
-test app::tests::stop_does_not_affect_other_panes ... ok
+test app::tests::session_picker_switches_only_to_another_session ... ok
 test app::tests::task_editor_enter_inserts_newlines_and_space_stays_text ... ok
+test app::tests::stop_does_not_affect_other_panes ... ok
+test app::tests::task_editor_caps_dependencies_at_the_limit ... ok
 test app::tests::task_editor_maps_fields_and_submits_the_full_parameter_set ... ok
 test app::tests::task_editor_opens_only_for_a_configured_pane ... ok
+test app::tests::pane_input_history_is_bounded_and_per_pane ... ok
 test app::tests::task_editor_paste_keeps_newlines_and_ignores_text_in_the_list ... ok
 test app::tests::task_editor_requires_a_goal_and_an_acceptance ... ok
 test app::tests::text_buffer_edits_line_wise_at_char_boundaries ... ok
-test app::tests::pane_input_history_is_bounded_and_per_pane ... ok
 test app::tests::zoom_shared_and_scroll_are_independent ... ok
 test client::tests::agent_form_generates_a_uuid_for_an_empty_pane ... ok
 test client::tests::agent_form_prefills_an_existing_agent_and_pane_zero_is_the_coordinator ... ok
-test client::tests::approvals_apply_and_clamp_index ... ok
-test client::tests::compact_form_reopens_with_summary_and_note ... ok
 test client::tests::approval_detail_handles_missing_and_long_values ... ok
+test client::tests::approvals_apply_and_clamp_index ... ok
 test client::tests::agents_map_to_one_coordinator_and_three_workers ... ok
-test client::tests::create_form_prefills_from_options ... ok
 test client::tests::build_review_requires_a_completed_coding_task ... ok
+test client::tests::compact_form_reopens_with_summary_and_note ... ok
+test app::tests::history_is_bounded_and_empty_input_does_not_send ... ok
+test client::tests::create_form_prefills_from_options ... ok
 test client::tests::create_session_params_omit_an_empty_requirement ... ok
 test client::tests::event_text_prefers_known_fields_and_falls_back_to_json ... ok
+test client::tests::detail_maps_every_host_field_and_labels_dependencies ... ok
+test client::tests::integration_status_labels_cover_every_host_value ... ok
 test client::tests::probe_outcome_reports_progress_and_verdict ... ok
 test client::tests::revision_conflict_is_classified ... ok
 test client::tests::requirement_lines_keep_only_the_newest_user_constraints ... ok
-test app::tests::history_is_bounded_and_empty_input_does_not_send ... ok
-test client::tests::short_id_is_utf8_safe_for_ascii_uuids ... ok
 test client::tests::session_items_mark_the_current_session_and_degrade_safely ... ok
+test client::tests::short_id_is_utf8_safe_for_ascii_uuids ... ok
 test client::tests::status_and_protocol_labels_are_bounded ... ok
 test client::tests::task_form_starts_from_the_coding_toggle_and_empty_text ... ok
 test client::tests::task_form_labels_progress_and_refuses_unusable_dependencies ... ok
 test host::tests::classify_distinguishes_notifications_from_responses ... ok
+test ui::tests::diff_highlighting_classifies_lines_and_survives_odd_input ... ok
 test ui::tests::empty_and_oversized_session_picker_renders_without_panicking ... ok
+test ui::tests::agent_modal_renders_identity_endpoint_and_budget ... ok
 test ui::tests::footer_key_hints_fit_the_demo_frame ... ok
 test ui::tests::layout_has_one_tall_coordinator_and_three_worker_panes ... ok
-test ui::tests::agent_modal_renders_identity_endpoint_and_budget ... ok
-test ui::tests::empty_and_oversized_task_modals_render_without_panicking ... ok
-test ui::tests::full_layout_renders_all_models_and_demo_boundary ... ok
 test ui::tests::compact_and_create_modals_render ... ok
+test ui::tests::empty_and_oversized_task_modals_render_without_panicking ... ok
 test ui::tests::approval_and_credential_modals_render_masked ... ok
+test ui::tests::detail_modal_renders_workspace_dependencies_and_blocked_reason ... ok
+test ui::tests::full_layout_renders_all_models_and_demo_boundary ... ok
+test ui::tests::output_modal_renders_result_draft_and_attachments ... ok
 test host::tests::request_and_response_round_trip_through_a_subprocess ... ok
 test ui::tests::narrow_terminal_and_zoom_show_only_focused_model ... ok
-test ui::tests::output_modal_renders_result_draft_and_attachments ... ok
 test ui::tests::publish_modal_renders_kind_selector_and_content ... ok
-test ui::tests::unicode_input_window_fits_without_cutting_utf8 ... ok
 test ui::tests::review_modal_renders_diff_and_conclusion ... ok
+test ui::tests::unicode_input_window_fits_without_cutting_utf8 ... ok
 test ui::tests::task_modal_renders_goal_acceptance_dependencies_and_the_caret ... ok
 test ui::tests::resize_clamps_history_offset_and_shared_records_render ... ok
 test ui::tests::session_picker_renders_current_marker_and_requirements ... ok
 test ui::tests::tiny_sizes_and_quit_popup_do_not_panic ... ok
 test host::tests::real_host_drives_session_and_agent_listing ... ok
 
-test result: ok. 81 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.82s
+test result: ok. 86 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.99s
 
 ## clippy
     Checking codex-collab-tui v0.1.0 (/Users/Apple/Documents/ZcyCode/codex-collab/collab/tui)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.66s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.83s
 ## format
 format ok
 ## pty demo probe
 PASS: four panes, live-only keys stay inert, paste/send, caret editing, stop, confirmed quit, terminal restoration, non-TTY rejection
 ## pty live probe
-seeded session d1a25e49 with agent model planner-model
-PASS: live session/agent rendering, coding toggle, review routing, compaction and create forms, agent configuration, connection probe, task output view, user constraint publication, task editor with newline/acceptance/coding, second session creation and picker switch with no cross-session leakage, masked credential form, confirmed quit, terminal restoration
+seeded session dc3a519c with agent model planner-model
+PASS: live session/agent rendering, coding toggle, review routing, compaction and create forms, agent configuration, connection probe, task output view, user constraint publication, task editor with newline/acceptance/coding, task detail from task/get, second session creation and picker switch with no cross-session leakage, masked credential form, confirmed quit, terminal restoration
 ## screen snapshot (task editor, live, 40x132)
-›_ codex-collab  会话 b99484ba…
+›_ codex-collab  会话 32ef00b9…
 左侧主控 / 右侧三个工作终端
 ┌ ▶ 1 主控 · planner-model [失败] ────────────────────────┐┌ 2 工作1 · — [未配置] ─────────────────────────────────────────────────┐
 │https┌ 编排任务 · task/create 目标、验收与依赖 ─────────────────────────────────────────────────────────────────────────────┐     │
@@ -314,11 +325,46 @@ PASS: live session/agent rendering, coding toggle, review routing, compaction an
 │     │                                                                                                                      │     │
 │❯    │                                                                                                                      │     │
 └─────└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘─────┘
-[1 主控] 编码:关  Tab 焦点  F2 放大  F3 共享  Ctrl+A 配置  Ctrl+L 会话  Ctrl+R 刷新  Ctrl+C 停止  Ctrl+Q 退出
-Ctrl+T 自检  Ctrl+U 约束  Ctrl+O 结果  Ctrl+F 编排  Ctrl+E 编码  Ctrl+G 审查集成  Ctrl+P 压缩  Ctrl+N 新建  Ctrl+K 密钥
+[1 主控] 编码:关  Tab 焦点  F2 放大  F3 共享  Ctrl+A 配置  Ctrl+L 会话  Ctrl+K 密钥  Ctrl+R 刷新  Ctrl+C 停止  Ctrl+Q 退出
+Ctrl+T 自检  Ctrl+U 约束  Ctrl+O 结果  Ctrl+D 详情  Ctrl+F 编排  Ctrl+E 编码  Ctrl+G 审查集成  Ctrl+P 压缩  Ctrl+N 新建
 连接自检未通过，详见窗格记录与任务结果。
+## screen snapshot (task detail, live, 34x132)
+›_ codex-collab  会话 dda353a5…
+左侧主┌ 任务详情 · task/get 状态、工作区与结果 ──────────────────────────────────────────────────────────────────────────────┐
+┌ ▶ 1 │任务 15fa1855… · 失败 · 编码 关                                                                                       │─────┐
+│https│窗格 1 主控 · Agent 11111111-2222-4333-8444-555555555555                                                              │     │
+│$ cod│上下文版本 0 · 集成 未集成                                                                                            │     │
+│[自检│工作区 —                                                                                                              │     │
+│[任务│基线 —                                                                                                                │     │
+│[任务│候选提交 —                                                                                                            │     │
+│[自检│                                                                                                                      │     │
+│     │目标：                                                                                                                │     │
+│     │Connection capability test: first call collab_publish with kind=result and data=connection_probe_ok, then answer      │     │
+│     │connection_probe_ok. Do not read files or run shell commands.                                                         │─────┘
+│     │验收标准：                                                                                                            │─────┐
+│     │Successful streaming response and collab_publish tool call; inspect task evidence and shared result event.            │     │
+│     │依赖：无                                                                                                              │     │
+│     │结果摘要：                                                                                                            │     │
+│     │Keychain credential unavailable                                                                                       │     │
+│     │PgUp/PgDn 滚动 · Ctrl+R 刷新 · Esc 关闭（只读宿主快照）                                                               │     │
+│     │                                                                                                                      │     │
+│     │                                                                                                                      │     │
+│     │                                                                                                                      │─────┘
+│     │                                                                                                                      │─────┐
+│     │                                                                                                                      │     │
+│     │                                                                                                                      │     │
+│     │                                                                                                                      │     │
+│     │                                                                                                                      │     │
+│     │                                                                                                                      │     │
+│     │                                                                                                                      │     │
+│     │                                                                                                                      │     │
+│❯    │                                                                                                                      │     │
+└─────│                                                                                                                      │─────┘
+[1 主控                                                                                                                      │
+Ctrl+T└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+任务 15fa1855… 详情已加载：PgUp/PgDn 滚动，Ctrl+R 刷新。
 ## screen snapshot (session picker, live, 30x132, three sessions)
-›_ codex-collab  会话 1cae5a23…
+›_ codex-collab  会话 8f3d9a85…
 左侧主控 / 右侧三个工作终端
 ┌ ▶ 1 主控 · planner-model [空闲] ────────────────────────┐┌ 2 工作1 · — [未配置] ─────────────────────────────────────────────────┐
 │https://example.invalid/v1 / Responses · 65536 字节预算  ││— / —                                                                  │
@@ -328,13 +374,13 @@ Ctrl+T 自检  Ctrl+U 约束  Ctrl+O 结果  Ctrl+F 编排  Ctrl+E 编码  Ctrl+
 │                                                         ││                                                                       │
 │                                                         ││❯                                                                      │
 │          ┌ 会话列表 · session/list 切换会话 ──────────────────────────────────────────────────────────────────────────┐──────────┘
-│          │▸ ● 1cae5a23… · 验证 1 条  · 当前                                                                           │──────────┐
-│          │  ○ c101be89… · 验证 2 条                                                                                   │          │
-│          │  ○ 1f85cecd… · 验证 2 条                                                                                   │          │
+│          │▸ ● 8f3d9a85… · 验证 1 条  · 当前                                                                           │──────────┐
+│          │  ○ eaa38c29… · 验证 2 条                                                                                   │          │
+│          │  ○ 569cab88… · 验证 2 条                                                                                   │          │
 │          │                                                                                                            │          │
 │          │仓库 /private/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/codex-collab-sn…                              │          │
-│          │分支 codex/collab-1cae5a23-ea95-4d45-a6c6-53b089fc5937                                                      │          │
-│          │基线 d32ae49e4ae6…                                                                                          │          │
+│          │分支 codex/collab-8f3d9a85-3abc-4811-81ea-838429d250a5                                                      │          │
+│          │基线 d0bab2b722c6…                                                                                          │          │
 │          │用户约束 1 条：                                                                                             │          │
 │          │[用户] keep the public API stable                                                                           │──────────┘
 │          │↑/↓ 选择 · Enter 切换 · Ctrl+R 重新读取 · Esc 关闭                                                          │──────────┐
@@ -345,6 +391,6 @@ Ctrl+T 自检  Ctrl+U 约束  Ctrl+O 结果  Ctrl+F 编排  Ctrl+E 编码  Ctrl+
 │                                                         ││                                                                       │
 │❯                                                        ││❯                                                                      │
 └─────────────────────────────────────────────────────────┘└───────────────────────────────────────────────────────────────────────┘
-[1 主控] 编码:关  Tab 焦点  F2 放大  F3 共享  Ctrl+A 配置  Ctrl+L 会话  Ctrl+R 刷新  Ctrl+C 停止  Ctrl+Q 退出
-Ctrl+T 自检  Ctrl+U 约束  Ctrl+O 结果  Ctrl+F 编排  Ctrl+E 编码  Ctrl+G 审查集成  Ctrl+P 压缩  Ctrl+N 新建  Ctrl+K 密钥
+[1 主控] 编码:关  Tab 焦点  F2 放大  F3 共享  Ctrl+A 配置  Ctrl+L 会话  Ctrl+K 密钥  Ctrl+R 刷新  Ctrl+C 停止  Ctrl+Q 退出
+Ctrl+T 自检  Ctrl+U 约束  Ctrl+O 结果  Ctrl+D 详情  Ctrl+F 编排  Ctrl+E 编码  Ctrl+G 审查集成  Ctrl+P 压缩  Ctrl+N 新建
 共 3 个会话：↑/↓ 选择，Enter 切换。

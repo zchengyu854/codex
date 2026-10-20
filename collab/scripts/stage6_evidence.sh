@@ -40,6 +40,11 @@ cargo build --locked --manifest-path "$manifest" -p codex-collab-core -p codex-c
     python3 "$root/collab/scripts/snapshot_terminal.py" "$tui" --live --core "$core" --rows 40 \
         --cols 132 --keys '^T|^F|implement retry with backoff|\r|second line|\t|tests pass and cancellation is covered' \
         | tee "$root/collab/evidence/stage-6-task-screen.txt"
+    echo "## screen snapshot (task detail, live, 34x132)"
+    # A real task/get round-trip: Ctrl+T queues the capability probe, Ctrl+D opens its detail.
+    python3 "$root/collab/scripts/snapshot_terminal.py" "$tui" --live --core "$core" --rows 34 \
+        --cols 132 --keys-delay 0.9 --keys '^T|^D' \
+        | tee "$root/collab/evidence/stage-6-detail-screen.txt"
     echo "## screen snapshot (session picker, live, 30x132, three sessions)"
     # Three real sessions on one repository, each with a published user constraint, so the picker
     # shows multiple rows, the current marker and the per-session requirement summary.

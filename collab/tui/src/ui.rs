@@ -90,7 +90,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         Paragraph::new(vec![
             Line::styled(
                 format!(
-                    "[{} {}] 编码:{}  Tab 焦点  F2 放大  F3 共享  Ctrl+A 配置  Ctrl+L 会话  Ctrl+R 刷新  Ctrl+C 停止  Ctrl+Q 退出",
+                    "[{} {}] 编码:{}  Tab 焦点  F2 放大  F3 共享  Ctrl+A 配置  Ctrl+L 会话  Ctrl+K 密钥  Ctrl+R 刷新  Ctrl+C 停止  Ctrl+Q 退出",
                     app.focused + 1,
                     focused.role,
                     if app.coding { "开" } else { "关" }
@@ -98,7 +98,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
                 Style::default().fg(ACCENT),
             ),
             Line::styled(
-                "Ctrl+T 自检  Ctrl+U 约束  Ctrl+O 结果  Ctrl+F 编排  Ctrl+E 编码  Ctrl+G 审查集成  Ctrl+P 压缩  Ctrl+N 新建  Ctrl+K 密钥",
+                "Ctrl+T 自检  Ctrl+U 约束  Ctrl+O 结果  Ctrl+D 详情  Ctrl+F 编排  Ctrl+E 编码  Ctrl+G 审查集成  Ctrl+P 压缩  Ctrl+N 新建",
                 Style::default().fg(ACCENT),
             ),
             Line::styled(app.feedback.as_str(), Style::default().fg(MUTED)),
@@ -330,6 +330,106 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             popup,
         );
     }
+    if let Some(form) = &app.detail {
+        let role = app.panes[form.pane].role.clone();
+        let agent = app.panes[form.pane]
+            .agent_id
+            .clone()
+            .unwrap_or_else(|| "—".into());
+        let mut lines = vec![
+            line(
+                format!(
+                    "任务 {} · {} · 编码 {}",
+                    short_id(&form.task_id),
+                    form.status,
+                    if form.coding {
+                        "开（产物需集成）"
+                    } else {
+                        "关"
+                    }
+                ),
+                FOREGROUND,
+            ),
+            line(
+                format!("窗格 {} {role} · Agent {agent}", form.pane + 1),
+                MUTED,
+            ),
+            line(
+                format!(
+                    "上下文版本 {} · 集成 {}",
+                    form.context_version, form.integration
+                ),
+                MUTED,
+            ),
+            line(format!("工作区 {}", dash(&form.worktree)), MUTED),
+            line(format!("基线 {}", dash(&form.base_commit)), MUTED),
+            line(format!("候选提交 {}", dash(&form.commit)), FOREGROUND),
+            line(String::new(), FOREGROUND),
+            line("目标：", MUTED),
+        ];
+        if form.goal.is_empty() {
+            lines.push(line("  （空）", MUTED));
+        } else {
+            push_block(&mut lines, &form.goal, 120);
+        }
+        lines.push(line("验收标准：", MUTED));
+        if form.acceptance.is_empty() {
+            lines.push(line("  （空）", MUTED));
+        } else {
+            push_block(&mut lines, &form.acceptance, 80);
+        }
+        if form.dependencies.is_empty() {
+            lines.push(line("依赖：无", MUTED));
+        } else {
+            lines.push(line(
+                format!("依赖（{}）：", form.dependencies.len()),
+                MUTED,
+            ));
+            for (id, status) in &form.dependencies {
+                lines.push(line(format!("  {id} · {status}"), FOREGROUND));
+            }
+        }
+        if !form.blocked.is_empty() {
+            lines.push(line(format!("阻塞原因 {}", form.blocked), WARN));
+        }
+        if !form.result.is_empty() {
+            lines.push(line("结果摘要：", MUTED));
+            push_block(&mut lines, &form.result, 200);
+        }
+        if !form.artifacts.is_empty() {
+            lines.push(line("产物：", MUTED));
+            for text in form.artifacts.lines() {
+                lines.push(line(text.to_string(), MUTED));
+            }
+        }
+        if !form.body.is_empty() {
+            lines.push(line("完整结果（附件，本机只读）：", MUTED));
+            push_block(&mut lines, &form.body, 200);
+        }
+        if form.result.is_empty() && form.body.is_empty() {
+            lines.push(line("（暂无结果；任务可能仍在排队或失败。）", MUTED));
+        }
+        lines.push(line(
+            "PgUp/PgDn 滚动 · Ctrl+R 刷新 · Esc 关闭（只读宿主快照）",
+            GREEN,
+        ));
+        // Keep the key hints visible even on short terminals.
+        let height = full.height.saturating_sub(2).clamp(3, 34);
+        let popup = centered(full, full.width.min(120), height);
+        frame.render_widget(Clear, popup);
+        frame.render_widget(
+            Paragraph::new(lines)
+                .style(Style::default().bg(BACKGROUND).fg(FOREGROUND))
+                .wrap(Wrap { trim: false })
+                .scroll((form.scroll.min(u16::MAX as usize) as u16, 0))
+                .block(
+                    Block::bordered()
+                        .title(" 任务详情 · task/get 状态、工作区与结果 ")
+                        .border_style(Style::default().fg(ACCENT)),
+                ),
+            popup,
+        );
+    }
     if let Some(form) = &app.output {
         let mut lines = vec![line(
             format!("任务 {} · {}", short_id(&form.task_id), form.status),
@@ -347,13 +447,21 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             lines.push(line("完整结果（附件，本机只读）：", MUTED));
             push_block(&mut lines, &form.body, 400);
         }
+        if !form.diff.is_empty() {
+            lines.push(line("差异（附件，本机只读）：", MUTED));
+            push_diff(&mut lines, &form.diff, 200);
+        }
         if !form.artifacts.is_empty() {
             lines.push(line("产物：", MUTED));
             for text in form.artifacts.lines() {
                 lines.push(line(text.to_string(), MUTED));
             }
         }
-        if form.result.is_empty() && form.draft.is_empty() && form.body.is_empty() {
+        if form.result.is_empty()
+            && form.draft.is_empty()
+            && form.body.is_empty()
+            && form.diff.is_empty()
+        {
             lines.push(line("（暂无输出；任务可能仍在排队。）", MUTED));
         }
         lines.push(line(
@@ -531,13 +639,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         }
         lines.push(line(String::new(), FOREGROUND));
         lines.push(line("差异：", MUTED));
-        let total = form.diff.lines().count();
-        for text in form.diff.lines().take(300) {
-            lines.push(line(text.to_string(), FOREGROUND));
-        }
-        if total > 300 {
-            lines.push(line(format!("…（差异共 {total} 行，已截断显示）"), MUTED));
-        }
+        push_diff(&mut lines, &form.diff, 300);
         lines.push(line(String::new(), FOREGROUND));
         lines.push(line(format!("审查结论 ❯ {}", form.input), ACCENT));
         lines.push(line(
@@ -595,6 +697,42 @@ fn push_block(lines: &mut Vec<Line<'static>>, text: &str, limit: usize) {
             MUTED,
         ));
     }
+}
+
+/// Push a unified diff with minimal colouring: hunk headers, additions, deletions and file headers.
+///
+/// There is no syntax parsing and no width assumption; every line is pushed as text, so wrapping
+/// and overlong lines stay the renderer's business.
+fn push_diff(lines: &mut Vec<Line<'static>>, text: &str, limit: usize) {
+    let total = text.lines().count();
+    for text in text.lines().take(limit) {
+        lines.push(line(text.to_string(), diff_color(text)));
+    }
+    if total > limit {
+        lines.push(line(
+            format!("…（差异共 {total} 行，已截断显示 {limit} 行）"),
+            MUTED,
+        ));
+    }
+}
+
+fn diff_color(text: &str) -> Color {
+    if text.starts_with("@@") {
+        ACCENT
+    } else if text.starts_with("+++") || text.starts_with("---") {
+        MUTED
+    } else if text.starts_with('+') {
+        GREEN
+    } else if text.starts_with('-') {
+        WARN
+    } else {
+        FOREGROUND
+    }
+}
+
+/// Show a placeholder for values the host did not set, instead of guessing one.
+fn dash(value: &str) -> &str {
+    if value.is_empty() { "—" } else { value }
 }
 
 /// Push a multi-line task text field, marking the caret inside the focused field.
@@ -887,6 +1025,103 @@ mod tests {
         assert!(text.contains("等待审查结论"));
     }
     #[test]
+    fn detail_modal_renders_workspace_dependencies_and_blocked_reason() {
+        use crate::app::DetailForm;
+        let mut app = App::live();
+        app.panes[1].agent_id = Some("aaaaaaaa-1111-4111-8111-111111111111".into());
+        app.detail = Some(DetailForm {
+            pane: 1,
+            task_id: "aaaaaaaa-1111-4111-8111-111111111111".into(),
+            status: "等待依赖".into(),
+            coding: true,
+            context_version: 7,
+            goal: "实现重试".into(),
+            acceptance: "测试通过".into(),
+            worktree: "/tmp/wt/task".into(),
+            base_commit: "89461ea68338".into(),
+            commit: String::new(),
+            integration: "未集成".into(),
+            dependencies: vec![("bbbbbbbb…".into(), "已完成".into())],
+            blocked: "dependency did not complete".into(),
+            result: String::new(),
+            artifacts: "file diff · 12 字节 · /tmp/state/attachments/t/1.txt".into(),
+            body: String::new(),
+            scroll: 0,
+        });
+        let text = screen(&mut app, 140, 42);
+        for needle in [
+            "任务详情",
+            "上下文版本 7",
+            "工作区 /tmp/wt/task",
+            "基线 89461ea68338",
+            "候选提交 —",
+            "实现重试",
+            "测试通过",
+            "依赖（1）",
+            "已完成",
+            "阻塞原因",
+            "file diff",
+        ] {
+            assert!(text.contains(needle), "detail view is missing {needle:?}");
+        }
+        // An empty snapshot still renders, with placeholders instead of invented values.
+        let form = app.detail.as_mut().unwrap();
+        form.dependencies.clear();
+        form.goal.clear();
+        form.acceptance.clear();
+        form.worktree.clear();
+        form.artifacts.clear();
+        form.blocked.clear();
+        let text = screen(&mut app, 90, 30);
+        assert!(text.contains("依赖：无"));
+        assert!(text.contains("（空）"));
+        assert!(text.contains("暂无结果"));
+    }
+
+    #[test]
+    fn diff_highlighting_classifies_lines_and_survives_odd_input() {
+        assert_eq!(diff_color("@@ -1,3 +1,4 @@"), ACCENT);
+        assert_eq!(diff_color("+++ b/src/lib.rs"), MUTED);
+        assert_eq!(diff_color("--- a/src/lib.rs"), MUTED);
+        assert_eq!(diff_color("+added"), GREEN);
+        assert_eq!(diff_color("-removed"), WARN);
+        assert_eq!(diff_color(" context"), FOREGROUND);
+        assert_eq!(diff_color(""), FOREGROUND);
+
+        // Empty diff, no trailing newline, CJK and a very long line must all push without panic.
+        let mut lines = Vec::new();
+        push_diff(&mut lines, "", 10);
+        assert!(lines.is_empty());
+        push_diff(&mut lines, "+中文没有换行", 10);
+        push_diff(&mut lines, &format!("+{}", "x".repeat(10_000)), 10);
+        let mut total = Vec::new();
+        for index in 0..30 {
+            total.push(format!("+line {index}"));
+        }
+        push_diff(&mut lines, &total.join("\n"), 10);
+        assert!(lines.len() > 10, "the truncation note is appended");
+
+        // The result modal colours the diff attachment without breaking the frame.
+        use crate::app::OutputForm;
+        let mut app = App::live();
+        app.output = Some(OutputForm {
+            pane: 0,
+            task_id: "t".into(),
+            status: "已完成".into(),
+            result: String::new(),
+            draft: String::new(),
+            body: String::new(),
+            diff: "@@ -1 +1 @@\n-old\n+new".into(),
+            artifacts: String::new(),
+            scroll: 0,
+            live: false,
+        });
+        let text = screen(&mut app, 90, 30);
+        assert!(text.contains("差异（附件"));
+        assert!(text.contains("+new"));
+    }
+
+    #[test]
     fn session_picker_renders_current_marker_and_requirements() {
         use crate::app::{SessionItem, SessionList};
         let mut app = App::live();
@@ -1001,6 +1236,7 @@ mod tests {
             result: "加了重试与退避。".into(),
             draft: String::new(),
             body: "完整输出第一行".into(),
+            diff: String::new(),
             artifacts: "full result · 128 字节 · /tmp/state/attachments/t/1.txt".into(),
             scroll: 0,
             live: false,
@@ -1201,6 +1437,7 @@ mod tests {
             "Ctrl+U 约束",
             "Ctrl+O 结果",
             "Ctrl+F 编排",
+            "Ctrl+D 详情",
             "Ctrl+L 会话",
             "Ctrl+G 审查集成",
             "Ctrl+C 停止",
@@ -1226,6 +1463,7 @@ mod tests {
                     result: "结果".into(),
                     draft: "草稿".into(),
                     body: String::new(),
+                    diff: String::new(),
                     artifacts: String::new(),
                     scroll: usize::MAX,
                     live: true,

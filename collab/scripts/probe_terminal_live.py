@@ -116,6 +116,11 @@ def text_now():
     return text.replace("❙", "")
 
 
+def squash(text):
+    """Drop whitespace: cell diffs rewrite only changed cells, so spaces inside a line can vanish."""
+    return "".join(text.split())
+
+
 def wait_for(needle, seconds=4.0):
     """Drain until `needle` shows up; the UI polls the host, so a fixed sleep is flaky."""
     deadline = time.monotonic() + seconds
@@ -303,6 +308,25 @@ try:
     os.write(master, b"\x13")  # Ctrl+S dispatches
     wait_for("任务已提交")
 
+    # Ctrl+D reads the new task back through task/get. The client only knows the task after its
+    # task/list refresh lands, so retry briefly instead of assuming the order of the two messages.
+    output.clear()
+    for _ in range(10):
+        os.write(master, b"\x04")  # Ctrl+D
+        drain(0.4)
+        if "任务详情" in text_now():
+            break
+    text = wait_for("任务详情", 2)
+    assert "验收标准" in text, f"detail view is missing the acceptance section:\n{text[-2000:]!r}"
+    assert "testspassandcancellationiscovered" in squash(text), (
+        f"the submitted acceptance is not shown:\n{text[-2000:]!r}"
+    )
+    assert "上下文版本" in text, (
+        f"the detail view did not come from task/get:\n{text[-2000:]!r}"
+    )
+    os.write(master, b"\x1b")  # Esc closes the detail view
+    drain(0.3)
+
     # Publish a requirement (the default kind) so the picker has a per-session summary to show.
     output.clear()
     os.write(master, b"\x15")  # Ctrl+U
@@ -384,7 +408,7 @@ try:
     )[0]
     texts = [event["data"] for event in events if event["kind"] == "requirement"]
     assert "always keep tests green" in texts, texts
-    print("PASS: live session/agent rendering, coding toggle, review routing, compaction and create forms, agent configuration, connection probe, task output view, user constraint publication, task editor with newline/acceptance/coding, second session creation and picker switch with no cross-session leakage, masked credential form, confirmed quit, terminal restoration")
+    print("PASS: live session/agent rendering, coding toggle, review routing, compaction and create forms, agent configuration, connection probe, task output view, user constraint publication, task editor with newline/acceptance/coding, task detail from task/get, second session creation and picker switch with no cross-session leakage, masked credential form, confirmed quit, terminal restoration")
 finally:
     if process.poll() is None:
         process.kill()

@@ -3,11 +3,12 @@
   "title": "from method reachability to parameter reachability",
   "segments": [
     "6-1 task orchestration: multi-line goal, acceptance criteria, dependencies and the coding switch from a terminal editor",
-    "6-2 session management: a session picker, a shared reload path for switching and creation, and per-session requirement visibility"
+    "6-2 session management: a session picker, a shared reload path for switching and creation, and per-session requirement visibility",
+    "6-3 task detail and result enhancement: a task/get detail view, blocked-reason recall, and diff-only colouring of the file-diff attachment"
   ],
-  "status": "6-1 and 6-2 complete; 6-3 task detail and 6-4 real API verification pending; 6-5 packaging is out of scope",
+  "status": "6-1, 6-2 and 6-3 complete; 6-4 real API verification pending; 6-5 packaging is out of scope",
   "date": "2026-10-20",
-  "scope": "stage 5 made all 19 host methods reachable, but the client always sent empty task parameters, could only bind a session at startup, and had never been verified against a real provider. 6-1 makes the task parameters reachable (acceptance criteria and dependency gating), 6-2 makes every persisted session reachable and switchable without restarting",
+  "scope": "stage 5 made all 19 host methods reachable, but the client always sent empty task parameters, could only bind a session at startup, showed task metadata only in fragments, and had never been verified against a real provider. 6-1 makes the task parameters reachable, 6-2 makes every persisted session switchable, 6-3 makes a task's full host snapshot readable in one place",
   "contract_coverage": {
     "core_methods_implemented": 19,
     "tui_methods": 19,
@@ -44,14 +45,14 @@
     "reload": "attach then runs agent/list -> task/list + event/list(after=0) + approval/list, the same catch-up path used everywhere else",
     "empty_requirement_fix": "Ctrl+N used to send `requirement: \"\"`; the host records whatever it receives, so every new session gained a blank user constraint. The client now omits the field when it is empty (`create_session_params`)"
   },
-  "footer": "hints moved to two lines: the global line carries Ctrl+L 会话 next to Ctrl+A 配置, and Ctrl+F 编排 sits on the task line; a 132-column render test asserts every hint is unabridged",
+  "footer": "hints moved to two lines: the global line carries Ctrl+A/Ctrl+L/Ctrl+K and the task line carries Ctrl+T/Ctrl+U/Ctrl+O/Ctrl+D/Ctrl+F/Ctrl+E/Ctrl+G/Ctrl+P/Ctrl+N; a 132-column render test asserts every hint is unabridged",
   "suite": {
-    "passed": 112,
+    "passed": 117,
     "failed": 0,
     "ignored": 2,
     "groups": {
       "core": 32,
-      "tui": 80
+      "tui": 85
     },
     "ignored_reason": "core runtime_e2e needs installed Codex; tui real-host smoke needs a built codex-collab-core",
     "new_tests": [
@@ -73,22 +74,42 @@
       "create_session_params_omit_an_empty_requirement",
       "requirement_lines_keep_only_the_newest_user_constraints",
       "session_picker_renders_current_marker_and_requirements",
-      "empty_and_oversized_session_picker_renders_without_panicking"
+      "empty_and_oversized_session_picker_renders_without_panicking",
+      "detail_view_opens_only_for_a_task_and_scrolls",
+      "detail_maps_every_host_field_and_labels_dependencies",
+      "integration_status_labels_cover_every_host_value",
+      "detail_modal_renders_workspace_dependencies_and_blocked_reason",
+      "diff_highlighting_classifies_lines_and_survives_odd_input"
     ],
     "regressions_guarded": "the existing panes/input/history tests were kept and only adapted to TextBuf, so Enter dispatch, paste, history and caret editing stay covered; the picker's Ctrl+L is added to the footer regression list"
   },
   "opt_in": {
-    "tui_include_ignored_passed": 81,
+    "tui_include_ignored_passed": 86,
     "real_host_smoke": "passed: the ignored test still drives a real codex-collab-core process through session/create, agent/configure, agent/list, task/list, approval/list, task/get, task/integrate, context/compact, agent/testConnection, agent/connectionResult, event/publish and task/output"
   },
   "format_check": "passed",
   "clippy_warnings_as_errors": "passed",
   "pty_demo_smoke": "passed: four panes, the live-only Ctrl+F and Ctrl+L stay inert in demo mode and do not steal focus, paste/send, caret editing, stop, confirmed quit, terminal restoration, non-TTY rejection",
-  "pty_live_smoke": "passed: after seeding a session and agent, Ctrl+F opened the task editor, Enter inserted a newline rather than dispatching, Tab reached acceptance and the dependency list, space toggled the coding field, and Ctrl+S queued the task; the task was read back from the host afterwards with goal, acceptance, coding and dependencies intact. Then Ctrl+U published a requirement, Ctrl+N created a second session on the same repository (the panes showed 未配置 and the shared panel showed no records), Ctrl+L listed `共 2 个会话` with the current marker, Up + Enter switched back, and the seeded model plus both user records reappeared. After the TUI exited, the host confirmed two sessions with disjoint agents, tasks and user events, and the requirement still in the first session's log",
+  "pty_live_smoke": "passed: after seeding a session and agent, Ctrl+F opened the task editor, Enter inserted a newline rather than dispatching, Tab reached acceptance and the dependency list, space toggled the coding field, and Ctrl+S queued the task; Ctrl+D then opened task/get and showed the submitted acceptance plus the task/get-only context version. Then Ctrl+U published a requirement, Ctrl+N created a second session on the same repository (panes showed 未配置 and the shared panel had no records), Ctrl+L listed `共 2 个会话` with the current marker, Up + Enter switched back, and the seeded model plus both user records reappeared. After the TUI exited, the host confirmed two sessions with disjoint agents, tasks and user events, and the requirement still in the first session's log",
   "pty_render_note": "ratatui emits only changed cells and the inline caret changes one cell per keystroke, so the live probe strips escape sequences and the `❙` marker before matching contiguous text, and drains until an expected needle appears instead of sleeping a fixed time",
-  "screen_snapshot": "evidence/stage-6-task-screen.txt is a live 40x132 frame of the task editor (a failed dependency row, a two-line goal, an acceptance line and the caret still in the acceptance field). evidence/stage-6-sessions-screen.txt is a live 30x132 frame of the picker over three real sessions on one repository, showing the current marker, per-row validation counts and the requirement summary",
+  "screen_snapshot": "evidence/stage-6-task-screen.txt is a live 40x132 frame of the task editor; evidence/stage-6-detail-screen.txt is a live 34x132 task/get round-trip showing the failed probe task with `—` for workspace/base/commit and the host's result text; evidence/stage-6-sessions-screen.txt is a live 30x132 frame of the picker over three real sessions on one repository",
   "real_api_tested": false,
-  "real_api_blocker": "6-4 needs the provider, endpoint, model, protocol, whether spend is allowed, and who writes the credential through Ctrl+K; until then the connection probe keeps failing without a credential, which is itself visible in the task-editor snapshot's failed task row",
+  "real_api_blocker": "6-4 needs the provider, endpoint, model, protocol, whether spend is allowed, and who writes the credential through Ctrl+K. Without a credential no coding task can reach a commit, so the diff highlighter is covered by unit and render tests and its live snapshot is deferred to 6-4",
   "evidence_script": "scripts/stage6_evidence.sh replays build -> workspace tests -> opt-in tests -> clippy -> fmt -> both pty probes -> both snapshots, and rewrites evidence/stage-6-tests.log",
-  "log": "evidence/stage-6-tests.log"
+  "log": "evidence/stage-6-tests.log",
+  "task_detail": {
+    "key": "Ctrl+D",
+    "scope": "live mode only, focused pane's latest task; PgUp/PgDn scroll, Ctrl+R re-reads the snapshot, Esc closes",
+    "source": "task/get; the view is a read-only host snapshot and every field maps one to one",
+    "fields": "status, coding, contextVersion, worktree, baseCommit, commit, integrationStatus (未集成/已集成/存在冲突/集成失败/集成中断), goal, acceptance, dependencies as short id plus the status from the last task/list, block reason, result summary, attachment inventory and the full-result attachment",
+    "missing_values": "an unset field renders `—` or `（空）`; the view never infers a worktree, commit or integration state",
+    "blocked_reason": "the host only reports a block reason in the task_blocked event, so the client keeps the latest reason per task id (cleared on session switch) and shows it verbatim; without the event the line is absent",
+    "attachments": "artifacts and the full result come from the same local read_attachment helper as task/output, with no new path source and no user-supplied paths"
+  },
+  "result_modal": {
+    "diff_preview": "the output view now also reads the file-diff attachment (same helper and byte cap) and colours it line by line",
+    "highlighting": "`@@` hunk headers in the accent colour, `+++`/`---` file headers muted, `+` additions green, `-` deletions in the warning colour, everything else plain; no syntax parsing and no width assumptions",
+    "shared_code": "the review modal uses the same push_diff helper, still truncating at 300 lines with the total noted",
+    "boundaries": "empty text, a missing trailing newline, CJK, and a 10k-character single line are pushed unchanged and left to the renderer's wrapping; a non-UTF-8 attachment already fails at the read step and never reaches the highlighter"
+  }
 }

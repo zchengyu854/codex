@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Regenerate the stage 7-2 evidence log: workspace tests, TUI opt-in tests, lints, both pty probes
-# and the demo frame. The real provider runs are separate (`stage7_real_evidence.sh`) so this script
-# never spends money and never needs a credential. Run from anywhere; paths resolve relative to the
+# Regenerate the stage 7 evidence log: workspace tests, TUI opt-in tests, lints, both pty probes
+# and the demo frame. Real provider runs use stage7_real_evidence.sh / stage7_conflict_evidence.sh.
+# This script never spends money and never needs a credential. Paths resolve relative to the
 # script, and the first failing step aborts with the partial log left behind.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"

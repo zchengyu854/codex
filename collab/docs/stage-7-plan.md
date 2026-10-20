@@ -1,7 +1,7 @@
 # 阶段 7 设计：真实多 Agent 协作
 
 日期：2026-10-20（Asia/Shanghai）。
-状态：**7-1 至 7-3 已实现并验证**（真实多 Agent 派发与依赖门；宿主兜底与提交归属；并发、冲突与队列卫生）。7-3 已在真实场景走通并发、冲突、放弃及后续继续集成。
+状态：**阶段 7 已收尾；7-1 至 7-3 已实现并验证，7-4 按实测暂缓，7-5 已完成**（真实多 Agent 派发与依赖门；宿主兜底与提交归属；并发、冲突与队列卫生）。7-3 已在真实场景走通并发、冲突、放弃及后续继续集成。
 
 ## 出发点
 
@@ -33,7 +33,7 @@
 
 **断言**
 
-- 会话里恰好 4 个任务（C + W1 + W2），全部 `completed`，W1/W2 最终 `integrationStatus=integrated`。
+- 会话里恰好 3 个任务（C + W1 + W2），全部 `completed`，W1/W2 最终 `integrationStatus=integrated`。
 - **依赖门时序**：W2 第一次 `running` 的时间 **不早于** W1 的 `integrated` 时间；W2 在此之前保持 `queued`。（轮询每秒记录一次状态/集成状态，时间线进证据。）
 - 集成分支上同时有 `a.txt` 与 `b.txt`；原始仓库不被修改（会话是拷贝，不是原地）。
 - C 的公开消息里出现两次委派与两次审查；`integration` 事件两条 `integrated`。
@@ -119,16 +119,25 @@ worker 的两次自述都写着 "no git commands run, as instructed"，审批也
 
 验证：workspace 124（core 37 / tui 87）、TUI 含可选测试 88；clippy、fmt、双 pty 探针与 demo 快照见 `evidence/stage-7-tests.log`。`core/tests/git.rs::a_conflicting_candidate_is_marked_conflict_and_can_be_dropped` 验证冲突不推进分支、脏工作区拒绝后续集成、放弃后内容保留且仍可集成；runtime 回归验证失败 turn 恰好一次未完成上报，gateway 回归验证 `Retry-After: 0`，TUI/store 回归覆盖真实事件结构、Agent 归属与依赖提示。证据另见 `stage-7-conflict.log` 及三张 34×132 快照（总览、共享记录、冲突任务放弃后的详情）。
 
-## 7-4 审批策略（可选，取决于真实摩擦）
+## 7-4 审批策略（按实测暂缓）
 
-- 现状：每条 worker 命令都要人工决定。多 Agent 时中断成倍，7-1 会给出真实次数。
-- 方案方向：任务级「预批准执行策略」（沿用 codex 的 `execpolicy_amendment`），在派发时由操作者显式选择，事件里记录批准了哪几条命令前缀；默认仍是逐条审批。**不做**全局静默自动批准。
-- 7-2 之后编码任务默认 0 次审批，剩余中断来自操作者对 worker 的其它命令；只在它确实妨碍使用时才做。
+7-1 的 4 条审批均来自 worker 自行提交；7-2 将提交交给宿主后，完整委派运行和 7-3 冲突重放均为 0 条审批（分别见 `stage-7-guard.json`、`stage-7-conflict.json` 的 `approvals`）。目前没有足够摩擦支持增加任务级预批准策略，本段按原计划的可选条件暂缓。
 
-## 7-5 收尾
+默认仍逐条人工审批；重放脚本只有显式开启 `--approve` / `STAGE7_APPROVE=1` 才逐条记录并放行。若以后真实任务出现频繁的非提交类审批，再评估由操作者选择、记录命令前缀的任务级策略。
 
-- `README.md` 与 `stage-7-plan.md` 记录实测结论与限制；`evidence/stage-7-summary.json`（`real_multi_agent_tested`）。
-- 一键重放：`scripts/stage7_evidence.sh` 离线（测试、lint、探针、demo 快照）；`scripts/stage7_real_evidence.sh` 走真实服务商（去掉 `--reuse` 才计费，且需先在 TUI 里 `Ctrl+K` 写入密钥）。
+## 7-5 收尾（已完成）
+
+机器可读汇总：[`evidence/stage-7-summary.json`](../evidence/stage-7-summary.json)，`real_multi_agent_tested=true`。汇总引用原始运行证据，记录依赖门、主控续跑、审批次数、冲突放弃与恢复、最终验证以及已知限制。7-1 首轮和低预算运行的失败结论保留，不改写成成功。
+
+重放入口：
+
+- `bash collab/scripts/stage7_evidence.sh`：离线构建、测试、lint、双 pty 探针和 demo 快照。
+- `STATE=<状态目录> SESSION=<会话 id> bash collab/scripts/stage7_real_evidence.sh --reuse`：复用委派运行的 JSON 和快照生成日志。
+- `STATE=<状态目录> SESSION=<会话 id> bash collab/scripts/stage7_conflict_evidence.sh --reuse`：复用冲突运行的 JSON，重建日志和快照。
+
+去掉 `--reuse` 会真实派发并计费；先关闭占用状态目录的 TUI，在各 Agent 用 `Ctrl+K` 配好凭证，并为重复运行指定新文件名。委派脚本用 `FIRST` / `SECOND`，冲突脚本用 `FILE`。
+
+验收范围：真实 `chat_completions` 上的一主两工作 Agent、一个编码依赖、顺序集成、提前收工兜底、同行冲突和放弃后的恢复。本轮收尾只补文档及汇总，复用最终源码的 124 项 workspace / 88 项 TUI 含可选测试、lint、fmt 与双探针记录。`responses`、长会话中的模型侧压缩仍只有本地覆盖；真实场景的集成校验为 `/usr/bin/true`，不代表生产工作负载的正确性或性能。这些限制在汇总中明确保留。
 
 ## 安全边界
 
@@ -139,7 +148,7 @@ worker 的两次自述都写着 "no git commands run, as instructed"，审批也
 
 ## 顺序与依赖
 
-- 7-1 先行；7-2 依赖 7-1 的时序证据；7-3 已完成冲突与队列卫生；7-4 按实际摩擦选做；7-5 收尾。
+- 7-1 先行；7-2 依赖 7-1 的时序证据；7-3 已完成冲突与队列卫生；7-4 按实测暂缓；7-5 汇总与验收已完成。
 - 每段沿用既有节奏：`--locked` workspace 测试 + tui `--include-ignored` + clippy `-D warnings` + fmt `--check` + demo/live pty 探针 + 快照 → 更新文档与证据 → 提交推送 `origin`（不建 PR）。
 
 ## 已确认

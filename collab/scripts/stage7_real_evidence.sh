@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Stage 7 replay against a real provider: one delegation run, three live frames, the derived log.
+# Stage 7 replay against a real provider: one delegation run, four live frames, the derived log.
 #
-# This is the only stage 7 script that spends money. The key never passes through it: the operator
-# writes the credential once per agent in the TUI with Ctrl+K, the host reads it from the Keychain.
+# Without --reuse this script spends money, as does stage7_conflict_evidence.sh. The operator
+# writes credentials per agent with Ctrl+K; only the host reads them from Keychain.
 #
 #   STATE=/path/to/state SESSION=<id> STAGE7_APPROVE=1 stage7_real_evidence.sh
 #   STATE=/path/to/state SESSION=<id> stage7_real_evidence.sh --reuse   # no provider calls

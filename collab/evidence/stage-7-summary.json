@@ -1,0 +1,98 @@
+{
+  "stage": "7",
+  "title": "real multi-agent collaboration",
+  "date": "2026-10-20",
+  "status": "complete: 7-1 through 7-3 verified, optional 7-4 deferred based on measured approval counts, 7-5 documented",
+  "real_multi_agent_tested": true,
+  "real_provider": {
+    "endpoint": "https://<provider>/v1",
+    "model": "agnes-3.0-flash",
+    "protocol": "chat_completions",
+    "agents": 3,
+    "credential": "Keychain, entered through TUI Ctrl+K; no key in evidence"
+  },
+  "delegation_and_dependency_gate": {
+    "evidence": "evidence/stage-7-guard.json",
+    "verdict_ok": true,
+    "gate": {
+      "dependent": "8e5c3419",
+      "dependency": "3286a6cd",
+      "dependentStartedAt": 114.6,
+      "dependencyIntegratedAt": 114.6,
+      "wasQueued": true,
+      "ok": true
+    },
+    "worker_integrations": 2,
+    "source_repository_clean": true
+  },
+  "coordinator_guard": {
+    "continuations": 2,
+    "unfinished_reports": 0,
+    "budget_exhaustion_evidence": "evidence/stage-7-guard-budget.json",
+    "budget_exhaustion_reports": 1,
+    "failed_turn_reporting": "fixture regression: a_failed_turn_reports_the_work_it_left_behind"
+  },
+  "concurrency_and_conflict": {
+    "evidence": "evidence/stage-7-conflict.json",
+    "verdict_ok": true,
+    "stagger_seconds": 22.0,
+    "watch_start_seconds": 22.0,
+    "observed_running_overlap_seconds": 73.8,
+    "conflict_status": "conflict",
+    "branch_unchanged_after_abort": true,
+    "worktree_clean_after_abort": true,
+    "candidate_commit_preserved": true,
+    "task_integration_after_abort": "pending",
+    "post_abort_integration_status": "integrated",
+    "final_file_content": "ONE\ntwo\nTHREE\n",
+    "source_repository_clean": true
+  },
+  "approval_policy": {
+    "status": "7-4 deferred",
+    "default": "manual approval per requested operation",
+    "delegation_run_approvals": 0,
+    "conflict_run_approvals": 0,
+    "replay_auto_approval": "explicit opt-in; each approval is printed and recorded",
+    "reason": "host-owned git commits removed the observed approval friction; no task-level preapproval policy added"
+  },
+  "historical_failures": {
+    "stage_7_1_initial_verdict_ok": false,
+    "stage_7_1_followup_verdict_ok": true,
+    "stage_7_1_evidence": [
+      "evidence/stage-7-collab.json",
+      "evidence/stage-7-integration.json"
+    ],
+    "limited_budget_verdict_ok": false,
+    "note": "Initial incomplete runs are retained; later successful runs do not rewrite their verdicts. The earlier Keychain-blocked conflict replay is preserved in commit 0467a6e."
+  },
+  "suite": {
+    "passed": 124,
+    "failed": 0,
+    "ignored": 2,
+    "groups": {
+      "core": 37,
+      "tui": 87
+    },
+    "tui_include_ignored_passed": 88,
+    "core_runtime_e2e_rerun": false,
+    "clippy_warnings_as_errors": "passed",
+    "format_check": "passed",
+    "pty_demo_smoke": "passed",
+    "pty_live_smoke": "passed",
+    "evidence": "evidence/stage-7-tests.log",
+    "note": "Existing final source validation reused for this documentation-only closeout; core runtime_e2e remains opt-in and was not rerun in stage 7."
+  },
+  "replay": {
+    "offline": "bash collab/scripts/stage7_evidence.sh",
+    "delegation": "STATE=<state> SESSION=<session> bash collab/scripts/stage7_real_evidence.sh --reuse",
+    "conflict": "STATE=<state> SESSION=<session> bash collab/scripts/stage7_conflict_evidence.sh --reuse",
+    "note": "Removing --reuse dispatches real model tasks and incurs cost; close the TUI first and use fresh file names in reused state."
+  },
+  "limits": [
+    "Only chat_completions has real-provider coverage; responses has local mock coverage.",
+    "Running intervals prove host scheduling overlap, not simultaneous provider computation.",
+    "Real scenarios use small text files and /usr/bin/true for integration validation; they do not establish production workload correctness or performance.",
+    "Long-session model-driven context compaction was not exercised against the real provider; local store/client coverage remains.",
+    "The provider credential concurrency limit of 1 is reported in the handoff; the overlap evidence does not measure that limit."
+  ]
+}

@@ -1,0 +1,202 @@
+# stage 7-1 real multi-agent run
+Tue Oct 20 12:29:14 CST 2026
+# 端点按安全边界脱敏；密钥只经 TUI 的 Ctrl+K 进入 Keychain，脚本与日志都不接触它
+
+## 环境
+状态目录 /private/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/codex-collab-stage7-live
+会话     6d5d6f0f-ad1f-417e-8934-201111fa4ed0
+Agent    …0001 · coordinator agnes-3.0-flash · chat_completions · 预算 128000 字节
+Agent    …0002 · worker      agnes-3.0-flash · chat_completions · 预算 128000 字节
+Agent    …0003 · worker      agnes-3.0-flash · chat_completions · 预算 128000 字节
+端点     https://<provider>/v1（按阶段 6/7 的安全边界脱敏；真实值只在状态目录与 Keychain）
+
+## 主场景：主控委派两个工作 Agent，一个带依赖
+只派发 1 条任务给主控：b51eda5b-21a6-4729-87d2-efc0aef55d8f
+
+时间线（每秒轮询状态，只列本次运行新建的任务）：
+      0.0s  b51eda5b  …0001  queued     pending
+      1.5s  b51eda5b  …0001  running    pending
+     13.5s  b1ccafd3  …0002  running    pending
+     24.1s  4a4b750c  …0003  queued     pending
+     75.2s  b1ccafd3  …0002  completed  pending
+    126.4s  b1ccafd3  …0002  completed  integrated
+    126.4s  4a4b750c  …0003  running    pending
+    135.4s  b51eda5b  …0001  completed  pending
+    221.2s  4a4b750c  …0003  completed  pending
+
+依赖门：下游 4a4b750c 第一次 running 在 126.4s，前置 b1ccafd3 变 integrated 在 126.4s；下游此前一直 queued（是）→ 成立
+
+任务：
+  b51eda5b · …0001 · completed · 集成 pending · 编码 否 · 依赖 无 · 提交 —
+    目标   Run this delegation in one turn, without stopping to ask the user. Step 1: call collab_create_task for the first agent with role worker in the roster, with goal 'Create a.txt containing the single wo…
+    自述   Both tasks queued (a.txt: b1ccafd3, b.txt: 4a4b750c). Now waiting for the a.txt task. |  |  | a.txt task completed with commit `28e9e4dc...`. Reviewing the diff before integrating. |  |  | Diff only adds `a.txt` with `alpha`. Integrating it now. |  |  | a.txt is integrated. Now waiting on the b.txt…
+  b1ccafd3 · …0002 · completed · 集成 integrated · 编码 是 · 依赖 无 · 提交 28e9e4dc
+    目标   Create a.txt containing the single word alpha
+    自述   The heredoc in the shell might cause approval prompts. Let me use a simpler approach — but the file is already created. I need to commit it. Let me stage and commit a.txt. |  |  | The commit failed due to sandbox permissions (git index lock is outside my writable roots). Requesting escalation. |  |…
+  4a4b750c · …0003 · completed · 集成 pending · 编码 是 · 依赖 b1ccafd3 · 提交 e87cbc22
+    目标   Create b.txt containing the single word beta
+    自述   I'll create b.txt with the word beta. |  |  |  | Now committing on the task branch. |  |  | The commit failed due to sandbox restrictions on the git index lock. Requesting escalation. |  |  |  | Task complete. Created `b.txt` at repo root containing exactly `beta`, committed on the task branch. No …
+
+审批：4 条（逐条打印命令行与理由后由 --approve 放行）
+  - /bin/zsh -lc 'git add a.txt && git commit -m "Add a.txt containing alpha"'
+    理由 Allow git commit in the shared repo worktree (writing to the repo's .git/index.lock)?
+  - /bin/zsh -lc 'git -c user.email=collab@example.com -c user.name=collab-agent commit -m "Add a.txt containing alpha"'
+    理由 Commit with a local git author identity (no --global)?
+  - /bin/zsh -lc 'git add b.txt && git commit -m "Add b.txt containing beta" && git rev-parse HEAD'
+    理由 Do you want to commit b.txt on the task branch (git index lock is outside the writable sandbox)?
+  - /bin/zsh -lc 'git -c user.name="codex-agent" -c user.email="agent@local" commit -m "Add b.txt containing beta" && git rev-parse HEAD'
+    理由 Allow committing b.txt on the task branch with a git identity?
+
+集成事件：
+  rev 74 · checking · None → None · 任务提交 None
+  rev 75 · integrated · 391cd407 → c1216b53 · 任务提交 28e9e4dc
+
+协作分支 c1216b53 上的文件：
+  a.txt · 'alpha' · ok
+  b.txt · "[Errno 2] No such file or directory: '/private/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/codex-collab-stage7-live/worktrees/6d5d6f0f-ad1f-417e-8934-201111fa4ed0/integration/b.txt'" · FAIL
+（这一刻还有任务没集成——见下面的后续派发，主控当轮就收工了。）
+原始仓库未被改动：是
+令牌（本次场景）：…0001 118103, …0002 159700, …0003 89299
+
+## 第一次尝试：主控建完第一个任务就收工
+派发 3d15a6ee，会话里只多出 1 个工作任务。
+  3d15a6ee · …0001 · completed · 集成 pending · 提交 —
+    自述   I'll create the two dependent worker tasks (a.txt first, b.txt depending on it). |  | Task a2f5033a is queued. Now I'll create the b.txt task depending on it.
+  a2f5033a · …0002 · completed · 集成 pending · 提交 feea54dd
+    自述   Task complete. Created and committed `a.txt` with the requested content. |  | - `a.txt` contains exactly `alpha\n` | - Commit: `feea54dd46c1fa3a9b5e94a9f4a7cf6eba048143` | - Only `a.txt` was added; no existing files were modified
+宿主没有报错，任务正常 completed；缺的是主控自己的下一步（没有建第二个任务、没有集成）。
+
+## 补齐：两次后续派发
+目标任务 4a4b750c 当时 completed / 集成 pending，提交 e87cbc22。
+      0.0s  3d15a6ee  …0001  completed  pending
+      0.0s  a2f5033a  …0002  completed  pending
+      0.0s  b51eda5b  …0001  completed  pending
+      0.0s  b1ccafd3  …0002  completed  integrated
+      0.0s  4a4b750c  …0003  completed  pending
+      0.0s  faf92bdb  …0001  completed  pending
+      0.0s  f5c15f84  …0001  queued     pending
+      1.5s  f5c15f84  …0001  running    pending
+     25.6s  4a4b750c  …0003  completed  integrated
+     34.7s  f5c15f84  …0001  completed  pending
+
+最后一次派发：f5c15f84
+主控自述：Diff is clean — only adds `b.txt` with `beta`, no existing files touched. Integrating now. |  |  | Integration of task `4a4b750c` complete. |  | **Result** | - Reviewed the diff for commit `e87cbc2287c6eb51b1d612687dcb1d188f0b4b99`: it only adds `b.txt` containing `beta`, no existing files modified…
+
+结果：
+  目标任务 4a4b750c → completed / 集成 integrated；协作分支 78fee2be
+  a.txt · 'alpha' · ok
+  b.txt · 'beta' · ok
+
+## 结论
+- 委派、依赖门、审查、集成、并发 claim 在真实模型与真实服务商上全部成立：下游任务在依赖集成前保持 queued，
+  集成完成后同一秒转 running；两个任务先后集成到协作分支，源仓库没有被改动。
+- 失败点在主控的收尾：三次 turn 里，模型说完「接下来做 X」就直接结束，没有发出那个写操作的工具调用。
+  rollout 里能看到最后一次工具调用是 collab_review_diff，之后是纯文本消息加 task_complete，没有报错、没有失败的调用。
+- 因此宿主把任务标成 completed，而验收标准其实没满足：完成是模型自述，没有宿主侧的验收门。这是 7-2 的输入。
+
+## 界面快照（34x132，真实宿主，最终状态）
+
+›_ codex-collab  会话 6d5d6f0f…
+左侧主控 / 右侧三个工作终端
+┌ ▶ 1 主控 · agnes-3.0-flash [已完成] ────────────────────┐┌ 2 工作1 · agnes-3.0-flash [已完成] ───────────────────────────────────┐
+│https://<provider>/v1      / Chat Completions · 128000 字││https://<provider>/v1      / Chat Completions · 128000 字节预算        │
+│[产物] full result                                       ││to commit it. Let me stage and commit a.txt.The commit failed due to   │
+│[任务] 已完成 Reviewing the diff for the b.txt task      ││sandbox permissions (git index lock is outside my writable roots).     │
+│first.Diff is clean. Integrating now.                    ││Requesting escalation.Task complete. Created `a.txt` at the repo root  │
+│主控 ›                                                   ││containing exactly `alpha`, committed as                               │
+│主控 › Diff is clean — only adds `b.txt` with `beta`, no ││`28e9e4dc15288f470b136dfc57f21540d9c8b113` on the task branch. No      │
+│existing files touched. Integrating now.                 ││existing files were modified.                                          │
+│主控 › Integration of task `4a4b750c`                    ││❯                                                                      │
+│complete.**Result**- Reviewed the diff for commit        │└───────────────────────────────────────────────────────────────────────┘
+│`e87cbc2287c6eb51b1d612687dcb1d188f0b4b99`: it only adds │┌ 3 工作2 · agnes-3.0-flash [已完成] ───────────────────────────────────┐
+│`b.txt` containing `beta`, no existing files modified.-  ││https://<provider>/v1      / Chat Completions · 128000 字节预算        │
+│`collab_integrate` succeeded with status `integrated`    ││the task branch.The commit failed due to sandbox restrictions on the   │
+│(revalidated checks passed; head moved `c1216b53` →      ││git index lock. Requesting escalation.Task complete. Created `b.txt` at│
+│`78fee2be`).Acceptance criterion met — the task now      ││repo root containing exactly `beta`, committed on the task branch. No  │
+│reports `integrationStatus: integrated`.                 ││existing files were modified.Commit:                                   │
+│[产物] full result                                       ││`e87cbc2287c6eb51b1d612687dcb1d188f0b4b99`                             │
+│[任务] 已完成 Diff is clean — only adds `b.txt` with     ││❯                                                                      │
+│`beta`, no existing files touched. Integrating           │└───────────────────────────────────────────────────────────────────────┘
+│now.Integration of task `4a4b750c` complete.**Result**-  │┌ 4 工作3 · — [未配置] ─────────────────────────────────────────────────┐
+│Reviewed the diff for commit                             ││— / —                                                                  │
+│`e87cbc2287c6eb51b1d612687dcb1d188f0b4b99`: it only adds ││                                                                       │
+│`b.txt` containing `beta`, no existing files modified.-  ││                                                                       │
+│`collab_integrate` succeeded with status `integrated`    ││                                                                       │
+│(revalidated checks passed; head moved `c1216b53` →      ││                                                                       │
+│`78fee2be`).Acceptance criterion met — the task now      ││                                                                       │
+│reports `integrationStatus: integrated`.                 ││                                                                       │
+│❯                                                        ││❯                                                                      │
+└─────────────────────────────────────────────────────────┘└───────────────────────────────────────────────────────────────────────┘
+[1 主控] 编码:关  Tab 焦点  F2 放大  F3 共享  Ctrl+A 配置  Ctrl+L 会话  Ctrl+K 密钥  Ctrl+R 刷新  Ctrl+C 停止  Ctrl+Q 退出
+Ctrl+T 自检  Ctrl+U 约束  Ctrl+O 结果  Ctrl+D 详情  Ctrl+F 编排  Ctrl+E 编码  Ctrl+G 审查集成  Ctrl+P 压缩  Ctrl+N 新建
+已连接后台（collab/target/debug/codex-collab-core /private/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/codex-collab-stage7-live
+
+›_ codex-collab  会话 6d5d6f0f…
+左侧主控 / 右侧三个工作终端
+┌ ▶ 1 主控 · agnes-3.0-flash [已完成] ────────────────────┐┌ 2 工作1 · agnes-3.0-flash [已完成] ───────────────────────────────────┐
+│https://<provider>/v1      / Chat Completions · 128000 字││https://<provider>/v1      / Chat Completions · 128000 字节预算        │
+│existing files touched. Integrating now.                 ││Requesting escalation.Task complete. Created `a.txt` at the repo root  │
+│主控 › Integration of task `4a4b750c`                    ││containing exactly `alpha`, committed as                               │
+│complete.**Result**- Reviewed the diff for commit        ││`28e9e4dc15288f470b136dfc57f21540d9c8b113` on the task branch. No      │
+│`e87cbc2287c6eb51b1d612687dcb1d188f0b4b99`: it only adds ││existing files were modified.                                          │
+│`b.txt` containing `beta`, no existing files modified.-  ││❯                                                                      │
+│`collab_integrate` succeeded with status `integrated`    │└───────────────────────────────────────────────────────────────────────┘
+│(revalidated checks passed; head moved `c1216b53` →      │┌ 3 工作2 · agnes-3.0-flash [已完成] ───────────────────────────────────┐
+│`78fee2be`).Acceptance criterion met — the task now      ││https://<provider>/v1      / Chat Completions · 128000 字节预算        │
+│reports `integrationStatus: integrated`.                 ││git index lock. Requesting escalation.Task complete. Created `b.txt` at│
+│[产物] full result                                       ││repo root containing exactly `beta`, committed on the task branch. No  │
+│[任务] 已完成 Diff is clean — only adds `b.txt` with     ││existing files were modified.Commit:                                   │
+│`beta`, no existing files touched. Integrating           ││`e87cbc2287c6eb51b1d612687dcb1d188f0b4b99`                             │
+│now.Integration of task `4a4b750c` complete.**Result**-  ││❯                                                                      │
+│Reviewed the diff for commit                             │└───────────────────────────────────────────────────────────────────────┘
+│`e87cbc2287c6eb51b1d612687dcb1d188f0b4b99`: it only adds │┌ 4 工作3 · — [未配置] ─────────────────────────────────────────────────┐
+│`b.txt` containing `beta`, no existing files modified.-  ││— / —                                                                  │
+│`collab_integrate` succeeded with status `integrated`    ││                                                                       │
+│(revalidated checks passed; head moved `c1216b53` →      ││                                                                       │
+│`78fee2be`).Acceptance criterion met — the task now      ││                                                                       │
+│reports `integrationStatus: integrated`.                 ││                                                                       │
+│❯                                                        ││❯                                                                      │
+└─────────────────────────────────────────────────────────┘└───────────────────────────────────────────────────────────────────────┘
+┌ 共享记录 · F3 收起 ──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│[用户] 保留公开接口：只新建文件，不改既有文件；测试通过                                                                           │
+│                                                                                                                                  │
+│                                                                                                                                  │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+[1 主控] 编码:关  Tab 焦点  F2 放大  F3 共享  Ctrl+A 配置  Ctrl+L 会话  Ctrl+K 密钥  Ctrl+R 刷新  Ctrl+C 停止  Ctrl+Q 退出
+Ctrl+T 自检  Ctrl+U 约束  Ctrl+O 结果  Ctrl+D 详情  Ctrl+F 编排  Ctrl+E 编码  Ctrl+G 审查集成  Ctrl+P 压缩  Ctrl+N 新建
+已连接后台（collab/target/debug/codex-collab-core /private/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/codex-collab-stage7-live
+
+›_ codex-collab  会话 6d5d6f0f…
+左侧主┌ 任务详情 · task/get 状态、工作区与结果 ──────────────────────────────────────────────────────────────────────────────┐
+┌ 1 主│任务 4a4b750c… · 已完成 · 编码 开（产物需集成）                                                                       │─────┐
+│https│窗格 3 工作2 · Agent 77777777-0000-4000-8000-000000000003                                                             │     │
+│[产物│上下文版本 94 · 集成 已集成                                                                                           │to   │
+│[任务│工作区                                                                                                                │     │
+│first│/private/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/codex-collab-stage7-live/worktrees/6d5d6f0f-ad1f-417e-8934-20│oot  │
+│主控 │1111fa4ed0/4a4b750c-e19c-4fee-b77f-8145a45582d1                                                                       │     │
+│主控 │基线 c1216b53c279db0b2942da26a44dcc7f82e02f69                                                                         │     │
+│exist│候选提交 e87cbc2287c6eb51b1d612687dcb1d188f0b4b99                                                                     │     │
+│主控 │                                                                                                                      │     │
+│compl│目标：                                                                                                                │─────┘
+│`e87c│Create b.txt containing the single word beta                                                                          │─────┐
+│`b.tx│验收标准：                                                                                                            │     │
+│`coll│b.txt contains exactly beta                                                                                           │he   │
+│(reva│依赖（1）：                                                                                                           │t` at│
+│`78fe│  b1ccafd3… · 已完成                                                                                                  │ No  │
+│repor│结果摘要：                                                                                                            │     │
+│[产物│I'll create b.txt with the word beta.                                                                                 │     │
+│[任务│                                                                                                                      │     │
+│`beta│                                                                                                                      │─────┘
+│now.I│                                                                                                                      │─────┐
+│Revie│Now committing on the task branch.                                                                                    │     │
+│`e87c│                                                                                                                      │     │
+│`b.tx│                                                                                                                      │     │
+│`coll│The commit failed due to sandbox restrictions on the git index lock. Requesting escalation.                           │     │
+│(reva│                                                                                                                      │     │
+│`78fe│                                                                                                                      │     │
+│repor│                                                                                                                      │     │
+│❯    │Task complete. Created `b.txt` at repo root containing exactly `beta`, committed on the task branch. No existing files│     │
+└─────│were modified.                                                                                                        │─────┘
+[3 工作                                                                                                                      │
+Ctrl+T└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+任务 4a4b750c… 详情已加载：PgUp/PgDn 滚动，Ctrl+R 刷新。

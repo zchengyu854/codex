@@ -29,13 +29,21 @@ AGENTS = (
 )
 ACTIVE = ("queued", "running")
 GOAL = (
-    "Delegate work to the two worker agents listed in the shared roster, then review and integrate "
-    "their results. Use collab_create_task twice: the first worker must create a file named a.txt "
-    "containing the single word alpha and the second must create b.txt containing the single word "
-    "beta; both tasks are coding tasks. Make the b.txt task depend on the a.txt task so it cannot "
-    "start before the a.txt result is integrated. Then use collab_wait_task, read each diff with "
-    "collab_review_diff and call collab_integrate for a.txt first and b.txt second, passing the "
-    "exact commit you saw. Report both commits when both are integrated."
+    "Run this delegation in one turn, without stopping to ask the user. "
+    "Step 1: call collab_create_task for the first agent with role worker in the roster, with goal "
+    "'Create a.txt containing the single word alpha', acceptance 'a.txt contains exactly alpha', "
+    "coding true and no dependencies. "
+    "Step 2: immediately call collab_create_task again for the second worker, with goal 'Create "
+    "b.txt containing the single word beta', acceptance 'b.txt contains exactly beta', coding true, "
+    "and dependencies set to the task id returned by step 1. "
+    "Step 3: call collab_wait_task on the a.txt task until it is completed. "
+    "Step 4: call collab_review_diff for the a.txt task, then collab_integrate with that exact "
+    "commit once the diff only adds a.txt. "
+    "Step 5: call collab_wait_task on the b.txt task until it is completed, then collab_review_diff "
+    "and collab_integrate the same way. "
+    "Step 6: only after both integrations report integrated, answer with the two commit hashes. "
+    "Do not finish after creating the tasks, and do not skip the integrations: the job is the "
+    "reviewed and integrated result, not the delegation."
 )
 ACCEPTANCE = (
     "Both worker tasks are completed and integrated into the collaboration branch, a.txt contains "
@@ -168,6 +176,11 @@ def prepare(args):
     )
 
 
+def short(agent_id):
+    """`77777777-…-0002` -> `…0002`: every fixed id shares its first eight characters."""
+    return "…" + agent_id[-4:]
+
+
 def redacted(url):
     """The repository never carries the operator's real endpoint (stage-6/7 boundary)."""
     return "https://<provider>/v1" if url.startswith("https://") else "<loopback>"
@@ -226,14 +239,14 @@ def poll_run(host, session, args, evidence):
                 {
                     "at": round(time.monotonic() - started, 1),
                     "task": key[:8],
-                    "agent": task["agentId"][:8],
+                    "agent": short(task["agentId"]),
                     "status": task["status"],
                     "integrationStatus": task.get("integrationStatus"),
                 }
             )
             print(
                 f"{timeline[-1]['at']:>6.1f}s {key[:8]} "
-                f"{task['agentId'][:8]} {task['status']} "
+                f"{short(task['agentId'])} {task['status']} "
                 f"{task.get('integrationStatus')}"
             )
         if tasks and all(task["status"] not in ACTIVE for task in tasks):
@@ -278,6 +291,8 @@ def verify(args):
         evidence["session"] = session
         print(f"会话 {session[:8]} · {len(roster)} 个 Agent")
 
+        existing = {t["id"] for t in host.call("task/list", {"sessionId": session})}
+        evidence["priorTasks"] = len(existing)
         coordinator = host.call(
             "task/create",
             {
@@ -293,10 +308,12 @@ def verify(args):
         print(f"派发 {coordinator['id'][:8]} 给主控")
 
         timeline, approvals = poll_run(host, session, args, evidence)
-        evidence["timeline"] = timeline
+        evidence["timeline"] = [e for e in timeline if e["task"] not in {i[:8] for i in existing}]
         evidence["approvals"] = approvals
 
-        tasks = host.call("task/list", {"sessionId": session})
+        tasks = [
+            t for t in host.call("task/list", {"sessionId": session}) if t["id"] not in existing
+        ]
         detail = {}
         for task in tasks:
             detail[task["id"]] = host.call("task/get", {"taskId": task["id"]})
@@ -414,6 +431,95 @@ def verify(args):
     return 0
 
 
+def integration_files(state, session):
+    """Read the collaboration worktree, not the source repository."""
+    root = os.path.join(state, "worktrees", session, "integration")
+    files = {}
+    for name, expected in (("a.txt", "alpha"), ("b.txt", "beta")):
+        path = os.path.join(root, name)
+        try:
+            with open(path, encoding="utf-8") as handler:
+                body = handler.read().strip()
+            files[name] = {"text": body, "ok": body == expected}
+        except OSError as error:
+            files[name] = {"error": str(error), "ok": False}
+    return files, root
+
+
+def followup(args):
+    """Ask the coordinator to finish a single integration the previous turn dropped.
+
+    The first two dispatches showed the model announcing the next step and ending its turn; this
+    subcommand closes that gap explicitly instead of hiding it, and records that it was needed.
+    """
+    state = args.state
+    host = Host(args.core, state, args.codex)
+    evidence = {"state": state, "target": args.task}
+    problems = []
+    try:
+        session = find_session(host, COORDINATOR)
+        if session is None:
+            raise SystemExit(f"{COORDINATOR} is not in {state}")
+        tasks = host.call("task/list", {"sessionId": session})
+        target = next((t for t in tasks if t["id"].startswith(args.task)), None)
+        if target is None:
+            raise SystemExit(f"no task starts with {args.task}")
+        evidence["taskBefore"] = target
+        if target["integrationStatus"] == "integrated":
+            print("already integrated")
+            return 0
+        if target["status"] != "completed" or not target["commit"]:
+            raise SystemExit(f"task is {target['status']} with commit {target['commit']}")
+        goal = (
+            f"Task {target['id']} is completed with commit {target['commit']} but is not integrated. "
+            "Call collab_review_diff for that exact task, then call collab_integrate with that exact "
+            "commit. Do not create new tasks and do not delegate further work."
+        )
+        dispatched = host.call(
+            "task/create",
+            {
+                "sessionId": session,
+                "agentId": COORDINATOR,
+                "goal": goal,
+                "acceptance": f"task {target['id']} reports integrationStatus integrated",
+                "dependencies": [],
+                "coding": False,
+            },
+        )
+        evidence["dispatch"] = {"taskId": dispatched["id"], "goal": goal}
+        print(f"dispatch {dispatched['id'][:8]} -> integrate {target['id'][:8]}")
+        timeline, approvals = poll_run(host, session, args, evidence)
+        evidence["timeline"] = timeline
+        evidence["approvals"] = approvals
+        evidence["taskAfter"] = host.call("task/get", {"taskId": target["id"]})
+        evidence["dispatchedAfter"] = host.call("task/get", {"taskId": dispatched["id"]})
+        integr = [
+            {"revision": e["revision"], "data": e["data"]}
+            for e in host.call("event/list", {"sessionId": session, "after": 0, "limit": 1000})
+            if e["kind"] == "integration" and e.get("taskId") == target["id"]
+        ]
+        evidence["integrations"] = integr
+        files, root = integration_files(state, session)
+        evidence["files"] = files
+        evidence["integrationHead"] = git(root, "rev-parse", "HEAD", check=False)
+        if evidence["taskAfter"]["integrationStatus"] != "integrated":
+            problems.append("the target task is still not integrated")
+        if not files["b.txt"]["ok"]:
+            problems.append("b.txt is not in the collaboration worktree")
+    finally:
+        host.close()
+    evidence["verdict"] = {"ok": not problems, "problems": problems}
+    with open(args.json, "w", encoding="utf-8") as handler:
+        json.dump(evidence, handler, ensure_ascii=False, indent=2)
+        handler.write("\n")
+    print(f"wrote {args.json}")
+    if problems:
+        print("FAIL: " + "; ".join(problems))
+        return 1
+    print("PASS: the dependent task is integrated and both files are on the collaboration branch")
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -437,6 +543,17 @@ def main():
     check.add_argument("--approve", action="store_true")
     check.add_argument("--codex", default="codex")
     check.set_defaults(handler=verify)
+
+    finish = sub.add_parser("followup", help="integrate one completed task the coordinator left behind")
+    finish.add_argument("--core", required=True)
+    finish.add_argument("--state", required=True)
+    finish.add_argument("--task", required=True, help="task id or unique prefix")
+    finish.add_argument("--json", default="collab/evidence/stage-7-integration.json")
+    finish.add_argument("--timeout", type=float, default=600)
+    finish.add_argument("--interval", type=float, default=1.5)
+    finish.add_argument("--approve", action="store_true")
+    finish.add_argument("--codex", default="codex")
+    finish.set_defaults(handler=followup)
     args = parser.parse_args()
     sys.exit(args.handler(args))
 

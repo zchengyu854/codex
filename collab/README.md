@@ -8,7 +8,7 @@
 - [阶段 4：终端接入协作后台](docs/stage-4-host-client.md)
 - [阶段 5：补齐终端契约覆盖](docs/stage-5-coverage.md)
 - [阶段 6：参数可达与真实验证（6-1 至 6-4 已实现并验证）](docs/stage-6-plan.md)
-- [阶段 7：真实多 Agent 协作（7-1 至 7-3 已实现，验证范围见记录）](docs/stage-7-plan.md)
+- [阶段 7：真实多 Agent 协作（7-1 至 7-3 已实现并验证）](docs/stage-7-plan.md)
 - [后台接口与行为约定](docs/core-api.md)
 
 ## 当前能力
@@ -73,7 +73,7 @@ STATE=<状态目录> SESSION=<会话 id> collab/scripts/stage7_conflict_evidence
 
 7 的真实多 Agent 已验证：一条派发给主控，主控自己建两个带依赖的工作任务，下游在依赖集成完成的同一秒才启动（`queued` → `running`），两个差异经审查先后集成到协作分支。模型在收尾前漏掉写操作时，宿主会向同一线程续跑（有预算与停滞判定），并在仍不完成时把 `task_incomplete` 同时写进窗格与共享记录；编码任务不再自己提交，审批从每任务 2 条降到 0。记录见 `evidence/stage-7-guard.log`、`stage-7-guard.json` 与四张实时快照。
 
-7-3 已验证两个 worker 的运行区间重叠、同行修改冲突时分支不前进、放弃后工作区恢复且候选提交保留。失败 turn 会报告遗留子任务，依赖详情区分「已完成 · 未集成」；429 使用秒级有界退避。真实恢复任务受 Keychain 环境问题中断，放弃后继续集成由 git 回归测试验证。记录见 `evidence/stage-7-conflict.{json,log}` 与阶段 7 文档。
+7-3 已验证两个 worker 的运行区间重叠、同行修改冲突时分支不前进、放弃后工作区恢复且候选提交保留。失败 turn 会报告遗留子任务，依赖详情区分「已完成 · 未集成」；429 使用秒级有界退避。最新真实重放也已完成放弃后的继续集成（`verdict.ok=true`），两个 worker 的运行观察区间重叠 73.8 秒，0 条审批。记录见 `evidence/stage-7-conflict.{json,log}` 与阶段 7 文档。
 
 端到端测试运行真实 Codex 执行进程和本地模拟 API，不使用真实 API Key。可设置 `CODEX_COLLAB_BIN` 指向源码构建的执行文件；默认使用 PATH 中的 Codex。终端接入测试需先构建 `codex-collab-core`（或设置 `CODEX_COLLAB_CORE`），伪终端实时脚本使用本地行协议，不调用真实模型。
 

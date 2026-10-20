@@ -1,7 +1,7 @@
 # 阶段 7 设计：真实多 Agent 协作
 
 日期：2026-10-20（Asia/Shanghai）。
-状态：**7-1 至 7-3 已实现**（真实多 Agent 派发与依赖门；宿主兜底与提交归属；并发、冲突与队列卫生）。7-3 的并发/冲突/放弃有真实证据，放弃后的继续集成由本地回归验证；真实收尾任务受 Keychain 环境问题中断。
+状态：**7-1 至 7-3 已实现并验证**（真实多 Agent 派发与依赖门；宿主兜底与提交归属；并发、冲突与队列卫生）。7-3 已在真实场景走通并发、冲突、放弃及后续继续集成。
 
 ## 出发点
 
@@ -104,18 +104,18 @@ worker 的两次自述都写着 "no git commands run, as instructed"，审批也
 - 集成事件带任务 Agent 归属，窗格从 `evidence.message` 展示冲突原因。429 最多 4 次请求，默认等待 5/15/30 秒；5xx 最多 3 次，等待 2/4 秒。有效的秒数 `Retry-After` 优先，等待上限 60 秒且可取消；不重放已经开始的响应流。
 - `scripts/stage7_conflict.py` 先集成种子文件，再把同基线、改同一行的任务派给两个 worker，按顺序集成以触发冲突，放弃后派发改另一行的恢复任务。记录错峰偏移、观察窗口、任务快照、分支头、工作区状态和审批；断言放弃不丢候选提交及最终文件内容。`stage7_conflict_evidence.sh --reuse` 从现有 JSON 重建日志和三张快照，不再请求模型。
 
-真实记录 `evidence/stage-7-conflict.json`（`shared6.txt`，两个 worker 错峰 22 秒）：
+真实记录 `evidence/stage-7-conflict.json`（`shared7.txt`，两个 worker 错峰 22 秒）：
 
 | 观测 | 结果 |
 | --- | --- |
-| 宿主并发 | `0d09ec5a` / `581c0799` 的 `running` 观察区间重叠 24.8 秒；两者基线均为 `2fe2129` |
-| 顺序集成 | 种子 `e832924 → 2fe2129`；首个编辑 `2fe2129 → 62f6d00` |
-| 同行冲突 | 第二个编辑进入 `conflict`，分支仍为 `62f6d00`，集成工作区有未合并内容 |
-| 放弃候选 | `task/abortIntegration` 后分支仍为 `62f6d00`，工作区干净；任务 `completed / pending`，提交保留 |
-| 内容与源仓库 | 文件仍为 `one\ntwo\nTHREE\n`；源仓库干净；0 条审批 |
-| 真实恢复任务 | `f62c972e` 因 `Keychain credential unavailable` 失败，未完成后续集成；原始 JSON 的 `verdict.ok=false` 原样保留 |
+| 宿主并发 | `84e19297` / `0aced9ba` 的 `running` 观察区间分别为 0.0–74.8 秒 / 1.0–86.9 秒，重叠 73.8 秒；两者基线均为 `acc41f5` |
+| 顺序集成 | 种子 `62f6d00 → acc41f5`；首个编辑 `acc41f5 → fd2e966` |
+| 同行冲突 | 第二个编辑进入 `conflict`，分支仍为 `fd2e966`，集成工作区有未合并内容 |
+| 放弃候选 | `task/abortIntegration` 后分支仍为 `fd2e966`，工作区干净；任务 `completed / pending`，提交保留 |
+| 真实恢复任务 | `bee5612c` 完成并集成：`fd2e966 → edcaa87`，证明放弃后可继续工作 |
+| 内容与源仓库 | 最终文件为 `ONE\ntwo\nTHREE\n`；源仓库干净；0 条审批；`verdict.ok=true` |
 
-限制：`running` 重叠证明宿主可以并发调度，不能证明服务商同时计算两个请求。交接记录指出该服务商同一凭证并发上限为 1，前几轮突发请求出现 429；本轮错峰绕开限制，结论不外推到其它服务商。旧证据未记录派发偏移，24.8 秒仅为错峰后的观察窗口。2026-10-20 本次接手重放在种子任务即遇到 Keychain 不可用，未产生新的模型结果；访问真实服务商与自动命令审批的提权请求被自动审批审查拒绝，暂沿用已有真实证据。
+限制：`running` 重叠证明宿主可以并发调度，不能证明服务商同时计算两个请求。交接记录指出该服务商同一凭证并发上限为 1，前几轮突发请求出现 429；本轮错峰未被限流打断，结论不外推到其它服务商。并发任务派发偏移为 0/22 秒；上述时间从错峰结束后的观察窗口起算。更早的 `shared6.txt` 恢复任务因 Keychain 不可用失败，原始失败证据保留在提交 `0467a6e`；本轮经用户明确授权真实调用、目标服务商及自动命令审批后，改由凭证可用的 worker 完整走通。
 
 验证：workspace 124（core 37 / tui 87）、TUI 含可选测试 88；clippy、fmt、双 pty 探针与 demo 快照见 `evidence/stage-7-tests.log`。`core/tests/git.rs::a_conflicting_candidate_is_marked_conflict_and_can_be_dropped` 验证冲突不推进分支、脏工作区拒绝后续集成、放弃后内容保留且仍可集成；runtime 回归验证失败 turn 恰好一次未完成上报，gateway 回归验证 `Retry-After: 0`，TUI/store 回归覆盖真实事件结构、Agent 归属与依赖提示。证据另见 `stage-7-conflict.log` 及三张 34×132 快照（总览、共享记录、冲突任务放弃后的详情）。
 

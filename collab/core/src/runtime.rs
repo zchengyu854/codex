@@ -299,10 +299,20 @@ impl Runtime {
                     &json!({"text":clip(&text,16_000)}),
                 )?;
             } else if method == "turn/completed" {
-                ensure!(
-                    p["turn"]["status"] == "completed",
-                    "Agent turn failed or interrupted"
-                );
+                if p["turn"]["status"] != "completed" {
+                    // The protocol carries the failure text (for example the gateway's 401/429
+                    // message); dropping it left every upstream error indistinguishable.
+                    let detail = p["turn"]["error"]["message"]
+                        .as_str()
+                        .unwrap_or("")
+                        .trim()
+                        .to_owned();
+                    let detail = redact(&detail, &[&gateway.token, redactions[0].as_str()]);
+                    if detail.is_empty() {
+                        bail!("Agent turn failed or interrupted");
+                    }
+                    bail!("Agent turn failed or interrupted: {}", clip(&detail, 500));
+                }
                 break;
             }
         }

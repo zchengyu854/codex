@@ -4,11 +4,12 @@
   "segments": [
     "6-1 task orchestration: multi-line goal, acceptance criteria, dependencies and the coding switch from a terminal editor",
     "6-2 session management: a session picker, a shared reload path for switching and creation, and per-session requirement visibility",
-    "6-3 task detail and result enhancement: a task/get detail view, blocked-reason recall, and diff-only colouring of the file-diff attachment"
+    "6-3 task detail and result enhancement: a task/get detail view, blocked-reason recall, and diff-only colouring of the file-diff attachment",
+    "6-4 real API and Keychain verification: a real probe and coding task, a recorded approval path, and a loopback failure matrix"
   ],
-  "status": "6-1, 6-2 and 6-3 complete; 6-4 real API verification pending; 6-5 packaging is out of scope",
+  "status": "6-1 through 6-4 complete, including a real-provider run and the failure matrix; 6-5 packaging is out of scope",
   "date": "2026-10-20",
-  "scope": "stage 5 made all 19 host methods reachable, but the client always sent empty task parameters, could only bind a session at startup, showed task metadata only in fragments, and had never been verified against a real provider. 6-1 makes the task parameters reachable, 6-2 makes every persisted session switchable, 6-3 makes a task's full host snapshot readable in one place",
+  "scope": "stage 5 made all 19 host methods reachable, but the client always sent empty task parameters, could only bind a session at startup, showed task metadata only in fragments, and had never been verified against a real provider. 6-1 makes the task parameters reachable, 6-2 makes every persisted session switchable, 6-3 makes a task's full host snapshot readable in one place, 6-4 proves the whole chain against a real OpenAI-compatible endpoint",
   "contract_coverage": {
     "core_methods_implemented": 19,
     "tui_methods": 19,
@@ -47,11 +48,11 @@
   },
   "footer": "hints moved to two lines: the global line carries Ctrl+A/Ctrl+L/Ctrl+K and the task line carries Ctrl+T/Ctrl+U/Ctrl+O/Ctrl+D/Ctrl+F/Ctrl+E/Ctrl+G/Ctrl+P/Ctrl+N; a 132-column render test asserts every hint is unabridged",
   "suite": {
-    "passed": 117,
+    "passed": 118,
     "failed": 0,
     "ignored": 2,
     "groups": {
-      "core": 32,
+      "core": 33,
       "tui": 85
     },
     "ignored_reason": "core runtime_e2e needs installed Codex; tui real-host smoke needs a built codex-collab-core",
@@ -79,7 +80,8 @@
       "detail_maps_every_host_field_and_labels_dependencies",
       "integration_status_labels_cover_every_host_value",
       "detail_modal_renders_workspace_dependencies_and_blocked_reason",
-      "diff_highlighting_classifies_lines_and_survives_odd_input"
+      "diff_highlighting_classifies_lines_and_survives_odd_input",
+      "failed_turn_surfaces_the_protocol_error_message"
     ],
     "regressions_guarded": "the existing panes/input/history tests were kept and only adapted to TextBuf, so Enter dispatch, paste, history and caret editing stay covered; the picker's Ctrl+L is added to the footer regression list"
   },
@@ -92,11 +94,23 @@
   "pty_demo_smoke": "passed: four panes, the live-only Ctrl+F and Ctrl+L stay inert in demo mode and do not steal focus, paste/send, caret editing, stop, confirmed quit, terminal restoration, non-TTY rejection",
   "pty_live_smoke": "passed: after seeding a session and agent, Ctrl+F opened the task editor, Enter inserted a newline rather than dispatching, Tab reached acceptance and the dependency list, space toggled the coding field, and Ctrl+S queued the task; Ctrl+D then opened task/get and showed the submitted acceptance plus the task/get-only context version. Then Ctrl+U published a requirement, Ctrl+N created a second session on the same repository (panes showed 未配置 and the shared panel had no records), Ctrl+L listed `共 2 个会话` with the current marker, Up + Enter switched back, and the seeded model plus both user records reappeared. After the TUI exited, the host confirmed two sessions with disjoint agents, tasks and user events, and the requirement still in the first session's log",
   "pty_render_note": "ratatui emits only changed cells and the inline caret changes one cell per keystroke, so the live probe strips escape sequences and the `❙` marker before matching contiguous text, and drains until an expected needle appears instead of sleeping a fixed time",
-  "screen_snapshot": "evidence/stage-6-task-screen.txt is a live 40x132 frame of the task editor; evidence/stage-6-detail-screen.txt is a live 34x132 task/get round-trip showing the failed probe task with `—` for workspace/base/commit and the host's result text; evidence/stage-6-sessions-screen.txt is a live 30x132 frame of the picker over three real sessions on one repository",
-  "real_api_tested": false,
-  "real_api_blocker": "6-4 needs the provider, endpoint, model, protocol, whether spend is allowed, and who writes the credential through Ctrl+K. Without a credential no coding task can reach a commit, so the diff highlighter is covered by unit and render tests and its live snapshot is deferred to 6-4",
-  "evidence_script": "scripts/stage6_evidence.sh replays build -> workspace tests -> opt-in tests -> clippy -> fmt -> both pty probes -> both snapshots, and rewrites evidence/stage-6-tests.log",
-  "log": "evidence/stage-6-tests.log",
+  "screen_snapshot": "evidence/stage-6-task-screen.txt is a live 40x132 frame of the task editor; evidence/stage-6-detail-screen.txt is a live 34x132 task/get round-trip showing the failed probe task with `—` for workspace/base/commit and the host's result text; evidence/stage-6-sessions-screen.txt is a live 30x132 frame of the picker over three real sessions on one repository; evidence/stage-6-real-detail-screen.txt and evidence/stage-6-real-output-screen.txt are live 34x132 frames of the real task's task/get detail (integrated) and its output view (file-diff preview)",
+  "real_api_tested": true,
+  "real_api_blocker": null,
+  "real_api": {
+    "endpoint": "https://<provider>/v1 (redacted per the stage 6 boundary; the concrete value stays in the operator's state directory and Keychain)",
+    "model": "agnes-3.0-flash",
+    "protocol": "chat_completions through the Responses->Chat conversion (cross-protocol requests drop reasoning)",
+    "credential": "written by the operator through Ctrl+K into Keychain service dev.codex.collab; the scripts never read, print or store the key",
+    "probe": "agent/testConnection -> agent/connectionResult: verified=true, capabilities text/stream/function_tools, result connection_probe_ok",
+    "coding_task": "completed; the model wrote hello.txt, the host committed 9d9b1ce and published a 133-byte file-diff attachment; task/integrate re-ran the validation in the integration worktree and moved head e63ada7 -> aee0946",
+    "approvals": "two item/commandExecution/requestApproval calls (the model's own git commit and git config, blocked because the worktree .git lives outside the sandbox root); the replay harness --approve prints and records each command and reason before accepting, and without --approve it stops with an explicit waiting-for-approval error instead of timing out",
+    "failure_matrix": "scripts/stage6_errors.py covers the address rule (non-loopback http, query and credentials rejected; https and loopback accepted), a Keychain set/delete round-trip on a throwaway agent id, upstream 401 (1 request, no retry), 429 (3 requests then give up), transport failure (502, not replayed) and a missing credential (Keychain credential unavailable)",
+    "code_change": "turn/completed used to drop turn.error.message, so every upstream failure read `Agent turn failed or interrupted`; the message is now redacted and surfaced, with a fixture test",
+    "limits": "chat_completions was exercised against the provider; responses has only unit and mock-upstream coverage. 401/429/transport were exercised against a loopback fake upstream, not the provider. The model's own summary claims the commit failed, which contradicts the committed candidate hash and the diff attachment"
+  },
+  "evidence_script": "scripts/stage6_evidence.sh replays build -> workspace tests -> opt-in tests -> clippy -> fmt -> both pty probes -> both snapshots and rewrites evidence/stage-6-tests.log; scripts/stage6_real_evidence.sh replays the real run (needs STATE and SESSION, spends money) and scripts/stage6_errors.py runs the loopback failure matrix offline",
+  "log": "evidence/stage-6-tests.log (default suite), evidence/stage-6-real.log (real run plus both live snapshots)",
   "task_detail": {
     "key": "Ctrl+D",
     "scope": "live mode only, focused pane's latest task; PgUp/PgDn scroll, Ctrl+R re-reads the snapshot, Esc closes",

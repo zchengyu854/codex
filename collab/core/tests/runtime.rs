@@ -29,7 +29,30 @@ for line in sys.stdin:
         emit({'method':'item/completed','params':{'item':{'type':'agentMessage','text':'fixture completed '+os.environ['COLLAB_GATEWAY_KEY']}}})
         emit({'method':'turn/completed','params':{'turn':{'status':'completed'}}})
 "#;
+const FAILING_FIXTURE: &str = r#"#!/usr/bin/python3
+import sys,json
+def emit(v): print(json.dumps(v),flush=True)
+for line in sys.stdin:
+    value=json.loads(line)
+    method=value.get('method')
+    if method=='initialize': emit({'id':value['id'],'result':{}})
+    elif method=='thread/start': emit({'id':value['id'],'result':{'thread':{'id':'fixture-thread'}}})
+    elif method=='turn/start':
+        emit({'id':value['id'],'result':{'turn':{'id':'fixture-turn'}}})
+        emit({'method':'turn/completed','params':{'turn':{'status':'failed','error':{'message':'unexpected status 401 Unauthorized: upstream authentication failed; update this agent credential'}}}})
+"#;
 async fn setup() -> (
+    TempDir,
+    TempDir,
+    Arc<Runtime>,
+    Task,
+    tokio::task::JoinHandle<()>,
+) {
+    setup_with(FIXTURE).await
+}
+async fn setup_with(
+    fixture: &str,
+) -> (
     TempDir,
     TempDir,
     Arc<Runtime>,
@@ -60,7 +83,7 @@ async fn setup() -> (
     }
     let root = TempDir::new().unwrap();
     let script = root.path().join("fixture-codex");
-    std::fs::write(&script, FIXTURE).unwrap();
+    std::fs::write(&script, fixture).unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -151,6 +174,32 @@ async fn routes_approval_to_exact_agent_and_redacts_local_credentials() {
     assert!(rt.store.approvals().unwrap().is_empty());
     rt.stop().await;
     schedule.await.unwrap();
+}
+#[tokio::test]
+async fn failed_turn_surfaces_the_protocol_error_message() {
+    let (_repo, _root, rt, t, _schedule) = setup_with(FAILING_FIXTURE).await;
+    let done = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let task = rt.store.task(&t.id).unwrap();
+            if task.status != "running" && task.status != "queued" {
+                break task;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(done.status, "failed", "{done:?}");
+    // Dropping the turn payload made every upstream error look the same.
+    let result = done.result.unwrap();
+    assert!(
+        result.contains("Agent turn failed or interrupted"),
+        "{result}"
+    );
+    assert!(
+        result.contains("upstream authentication failed"),
+        "the protocol error text is not surfaced: {result}"
+    );
 }
 #[tokio::test]
 async fn cancel_while_awaiting_approval_cleans_up_and_rejects_late_choice() {

@@ -1,13 +1,13 @@
 # Codex 多模型协作终端
 
-基于 Codex 的独立扩展项目，与 RoboPi 分开。上游提交固定于 `upstream.json`，开发分支为 `codex/multi-model-desktop`。目前完成源码/接口验证、Rust 协作核心、终端壳层演示、终端接入协作后台的四个段落（真实会话/Agent/任务显示、公开文本流、操作审批与密钥提交、编码开关与差异审查集成、会话创建与上下文压缩）、阶段 5 的五段（Agent 配置、连接自检、用户约束、任务结果查看、输入行光标编辑与命令历史），以及阶段 6 的前两段（任务编排：目标/验收标准/依赖/编码；会话列表与切换；任务详情与差异高亮）。界面为单终端多窗格。
+基于 Codex 的独立扩展项目，与 RoboPi 分开。上游提交固定于 `upstream.json`，开发分支为 `codex/multi-model-desktop`。目前完成源码/接口验证、Rust 协作核心、终端壳层演示、终端接入协作后台的四个段落（真实会话/Agent/任务显示、公开文本流、操作审批与密钥提交、编码开关与差异审查集成、会话创建与上下文压缩）、阶段 5 的五段（Agent 配置、连接自检、用户约束、任务结果查看、输入行光标编辑与命令历史），以及阶段 6 的四段（任务编排：目标/验收标准/依赖/编码；会话列表与切换；任务详情与差异高亮；真实服务商与 Keychain 验证）。界面为单终端多窗格。
 
 - [第 1 阶段：基线与接口验证](docs/stage-1.md)
 - [第 2 阶段：协作核心及验收](docs/stage-2.md)
 - [终端壳层：运行与操作](docs/stage-3-terminal.md)
 - [阶段 4：终端接入协作后台](docs/stage-4-host-client.md)
 - [阶段 5：补齐终端契约覆盖](docs/stage-5-coverage.md)
-- [阶段 6：参数可达与真实验证（6-1、6-2、6-3 已实现）](docs/stage-6-plan.md)
+- [阶段 6：参数可达与真实验证（6-1 至 6-4 已实现并验证）](docs/stage-6-plan.md)
 - [后台接口与行为约定](docs/core-api.md)
 
 ## 当前能力
@@ -57,7 +57,13 @@ python3 collab/scripts/probe_terminal_live.py collab/target/debug/codex-collab-t
 python3 collab/scripts/snapshot_terminal.py collab/target/debug/codex-collab-tui --demo
 collab/scripts/stage5_evidence.sh   # 重放以上步骤并重写阶段 5 证据日志与快照
 collab/scripts/stage6_evidence.sh   # 阶段 6：同上思路，快照为任务编辑器、任务详情与会话列表画面
+python3 collab/scripts/stage6_errors.py collab/target/debug/codex-collab-core
+                                    # 6-4 失败矩阵（地址规则、Keychain 临时账户、401/429/传输/缺凭证），全程回环
+STATE=<状态目录> SESSION=<会话 id> collab/scripts/stage6_real_evidence.sh --reuse
+                                    # 6-4 真实调用：去掉 --reuse 才会访问服务商并计费，且需先在 TUI 里 Ctrl+K 写入密钥
 ```
+
+6-4 的真实调用已验证：`agent/testConnection` 返回 `verified=true` 与 `text / stream / function_tools`（经 `chat_completions` 转换路径），随后一个编码任务产出 `file diff` 附件（`hello.txt`，133 字节）并由宿主提交、`task/integrate` 集成。端点按阶段 6 的安全边界在证据里脱敏为 `https://<provider>/v1`，密钥只经 `Ctrl+K` 进入 Keychain，脚本、日志与快照都不接触它。记录见 `evidence/stage-6-real.log`、`evidence/stage-6-real.json` 与两张实时快照。
 
 端到端测试运行真实 Codex 执行进程和本地模拟 API，不使用真实 API Key。可设置 `CODEX_COLLAB_BIN` 指向源码构建的执行文件；默认使用 PATH 中的 Codex。终端接入测试需先构建 `codex-collab-core`（或设置 `CODEX_COLLAB_CORE`），伪终端实时脚本使用本地行协议，不调用真实模型。
 

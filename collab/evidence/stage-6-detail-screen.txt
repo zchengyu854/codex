@@ -1,21 +1,21 @@
-›_ codex-collab  会话 dda353a5…
+›_ codex-collab  会话 a5bcbf5d…
 左侧主┌ 任务详情 · task/get 状态、工作区与结果 ──────────────────────────────────────────────────────────────────────────────┐
-┌ ▶ 1 │任务 15fa1855… · 失败 · 编码 关                                                                                       │─────┐
+┌ ▶ 1 │任务 460dc851… · 工作中 · 编码 关                                                                                     │─────┐
 │https│窗格 1 主控 · Agent 11111111-2222-4333-8444-555555555555                                                              │     │
 │$ cod│上下文版本 0 · 集成 未集成                                                                                            │     │
 │[自检│工作区 —                                                                                                              │     │
-│[任务│基线 —                                                                                                                │     │
-│[任务│候选提交 —                                                                                                            │     │
-│[自检│                                                                                                                      │     │
+│     │基线 —                                                                                                                │     │
+│     │候选提交 —                                                                                                            │     │
+│     │                                                                                                                      │     │
 │     │目标：                                                                                                                │     │
 │     │Connection capability test: first call collab_publish with kind=result and data=connection_probe_ok, then answer      │     │
 │     │connection_probe_ok. Do not read files or run shell commands.                                                         │─────┘
 │     │验收标准：                                                                                                            │─────┐
 │     │Successful streaming response and collab_publish tool call; inspect task evidence and shared result event.            │     │
 │     │依赖：无                                                                                                              │     │
-│     │结果摘要：                                                                                                            │     │
-│     │Keychain credential unavailable                                                                                       │     │
+│     │（暂无结果；任务可能仍在排队或失败。）                                                                                │     │
 │     │PgUp/PgDn 滚动 · Ctrl+R 刷新 · Esc 关闭（只读宿主快照）                                                               │     │
+│     │                                                                                                                      │     │
 │     │                                                                                                                      │     │
 │     │                                                                                                                      │     │
 │     │                                                                                                                      │─────┘
@@ -31,4 +31,4 @@
 └─────│                                                                                                                      │─────┘
 [1 主控                                                                                                                      │
 Ctrl+T└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-任务 15fa1855… 详情已加载：PgUp/PgDn 滚动，Ctrl+R 刷新。
+连接自检中（工作中）…

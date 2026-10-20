@@ -1,7 +1,7 @@
 # 阶段 6 设计：从「方法可达」到「参数可达与真实验证」
 
 日期：2026-10-19（Asia/Shanghai），实施记录更新于 2026-10-20。
-状态：**6-1、6-2、6-3 已实现并验证**；6-4 待凭证信息，6-5 不纳入本阶段。
+状态：**6-1 至 6-4 已实现并验证**（6-4 用真实服务商跑通连接探针与编码任务）；6-5 不纳入本阶段。
 
 ## 出发点
 
@@ -150,6 +150,24 @@
 **验收**：脚本在（a）无凭证、（b）有凭证两种环境下都能给出确定结论；有凭证时 `real_api_tested` 才能翻成 `true`，并同时更新三份 summary 的该字段与说明。
 
 **待用户输入**：服务商与端点、模型名、`responses`/`chat_completions`、是否允许产生费用、由谁在 TUI 内经 `Ctrl+K` 写入 Keychain。
+
+**实现记录（2026-10-20）**
+
+- **凭证分工**：`scripts/stage6_real.py prepare` 在给定状态目录里种一个固定 UUID 的 Agent（`11111111-2222-4333-8444-555555555555`）与会话；操作者在 TUI 里对那个 Agent 按 `Ctrl+K` 写入密钥，脚本自始至终不读、不打印、不落盘密钥；`verify` 只驱动宿主做真实调用。证据里的端点按上文安全边界脱敏为 `https://<provider>/v1`，脚本默认就这样写，不依赖事后手改。
+- **连接探针**：`agent/testConnection` → `agent/connectionResult`，`verified=true`，能力 `text / stream / function_tools`，结果是 `connection_probe_ok`。走的是 `chat_completions` 转换路径（`protocol::to_chat`：跨协议丢弃 `reasoning`，其余保留），所以这条证据同时覆盖 Responses→Chat 的转换。
+- **编码任务**：最小目标（在任务工作区建 `hello.txt`，一行 `collab ok`）→ 模型实际写文件 → 宿主提交 `9d9b1ce` → `file diff` 附件 133 字节 → `task/integrate` 在集成工作区重跑校验（`/usr/bin/true`）后 `integrated`，`head` 从 `e63ada7` 前进到 `aee0946`。差异高亮的真实数据这条补上了。
+- **审批**：模型自己尝试 `git commit`、`git config` 各触发一次 `item/commandExecution/requestApproval`（worktree 的 `.git` 在沙箱根之外，属预期）。无人值守重放用 `--approve`：逐条打印命令与理由、写进证据再放行，不静默通过；不加 `--approve` 时脚本停在审批上并明确报"等待审批"，不再空等到超时。
+- **失败分支**：`scripts/stage6_errors.py` 用回环假上游把设计要求的六类分支跑成确定性证据——地址规则（`http://example.com/v1`、带 query、带凭证三条被拒，https 与回环 http 通过）、Keychain 临时账户 `set`/`delete`、401（1 次请求、不重试）、429（3 次请求后放弃）、传输失败（502，`request not automatically replayed`）、缺凭证（`Keychain credential unavailable`）。全程不碰真实服务商，也不碰操作者的真实 Keychain 项；临时项在同一个宿主进程里删除。
+- **顺带修复**：`turn/completed` 的失败文本原先被丢掉，任务结果永远只有一句 `Agent turn failed or interrupted`，四种失败在界面上无法区分。现在把 `turn.error.message` 脱敏（网关令牌、密钥）后连同原因写进结果，401/429/传输失败各自可读；新增 `failed_turn_surfaces_the_protocol_error_message` 单测用失败夹具覆盖这条路径。
+
+验证：workspace 118 项全绿（core 33 / tui 85）、opt-in 86、clippy `-D warnings`、fmt `--check`、双 pty 探针通过。证据：`evidence/stage-6-real.json`（机器可读记录）、`evidence/stage-6-real.log`（由记录派生的日志 + 两张实时快照）、`evidence/stage-6-real-detail-screen.txt`（`Ctrl+D`，显示「集成 已集成」、候选提交与两个附件）、`evidence/stage-6-real-output-screen.txt`（`Ctrl+O`，展示 `file diff` 预览）、`evidence/stage-6-errors.json`（失败矩阵）。`scripts/stage6_real_evidence.sh` 可一键重放，`--reuse` 只重建日志、不访问服务商。
+
+限制（如实记录）：
+
+- 模型自述说"提交因权限失败"，与事实不符：它自己的 `git commit` 被沙箱拦下后，宿主侧提交成功，候选提交与差异附件都证明文件已落盘。这是模型措辞问题，不是宿主行为，也未改动代码去迁就它。
+- 只验证了 `chat_completions`；`responses` 直连只有单测与本地模拟上游覆盖，没有真实服务商。
+- 真实调用只覆盖成功路径；401/429/传输失败是对回环假上游验证的，没有对真实服务商制造这些错误（会浪费额度并可能触发风控）。
+- 任务记录里的 `integrationStatus` 在轮询时是 `pending`（`task/integrate` 还没执行），集成后 `task/get` 返回 `integrated`，详情快照里能看到最终值。
 
 ### 6-5（可选）打包与发布
 

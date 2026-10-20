@@ -1,0 +1,152 @@
+{
+  "state": "/private/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/codex-collab-stage6-live",
+  "agent": "11111111-2222-4333-8444-555555555555",
+  "session": "ba699868-c2f5-467f-bb93-3cd2df08090a",
+  "baseUrl": "https://<provider>/v1",
+  "model": "agnes-3.0-flash",
+  "protocol": "chat_completions",
+  "contextBytes": 128000,
+  "probe": {
+    "taskId": "df970503-9f4c-47d6-8279-bf7099ebf55d",
+    "status": "completed",
+    "verified": true,
+    "capabilities": [
+      "text",
+      "stream",
+      "function_tools"
+    ],
+    "result": "\nconnection_probe_ok\n",
+    "approvals": []
+  },
+  "task": {
+    "taskId": "9a666ce4-f179-463d-a207-5af21b4c4380",
+    "status": "completed",
+    "worktree": "/private/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/codex-collab-stage6-live/worktrees/ba699868-c2f5-467f-bb93-3cd2df08090a/9a666ce4-f179-463d-a207-5af21b4c4380",
+    "baseCommit": "e63ada7d05114d2eeee91343ecc224f57a6b23a8",
+    "commit": "9d9b1ce716f1bd219e73a7bce9f945955385cadf",
+    "integrationStatus": "pending",
+    "result": "\nThe git commit failed due to a permission issue in the shared repo path. Let me retry the commit with escalation.\n\n\nI need to set a git identity first, then commit.\n\n\nI need to re-add the file, likely because the staged index wasn't persisted due to a lock issue. Let me retry adding it.\n",
+    "approvals": [
+      {
+        "id": "2873f898-300a-4a41-946b-3e6025853c7f",
+        "method": "item/commandExecution/requestApproval",
+        "params": {
+          "availableDecisions": [
+            "accept",
+            {
+              "acceptWithExecpolicyAmendment": {
+                "execpolicy_amendment": [
+                  "git",
+                  "commit",
+                  "-m",
+                  "Add hello.txt with collab ok"
+                ]
+              }
+            },
+            "cancel"
+          ],
+          "command": "/bin/zsh -lc 'git commit -m \"Add hello.txt with collab ok\"'",
+          "commandActions": [
+            {
+              "command": "git commit -m \"Add hello.txt with collab ok\"",
+              "type": "unknown"
+            }
+          ],
+          "cwd": "/private/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/codex-collab-stage6-live/worktrees/ba699868-c2f5-467f-bb93-3cd2df08090a/9a666ce4-f179-463d-a207-5af21b4c4380",
+          "environmentId": "local",
+          "itemId": "call_e20ae0afa0c5408696c26288",
+          "kind": "command",
+          "proposedExecpolicyAmendment": [
+            "git",
+            "commit",
+            "-m",
+            "Add hello.txt with collab ok"
+          ],
+          "reason": "The git commit failed because writing to the shared worktree index.lock file is outside the sandbox. Do you want to allow the commit to proceed?",
+          "startedAtMs": 1792468062665,
+          "threadId": "01a1576b-c456-7ff2-9f89-a70bbc27a094",
+          "turnId": "01a1576b-c47c-7743-aca1-e13d63e6f8e3"
+        }
+      },
+      {
+        "id": "6ecbdd0d-bf09-48dd-b873-8566183da9d3",
+        "method": "item/commandExecution/requestApproval",
+        "params": {
+          "availableDecisions": [
+            "accept",
+            {
+              "acceptWithExecpolicyAmendment": {
+                "execpolicy_amendment": [
+                  "git",
+                  "config",
+                  "user.email",
+                  "codex@local"
+                ]
+              }
+            },
+            "cancel"
+          ],
+          "command": "/bin/zsh -lc 'git config user.email \"codex@local\" && git config user.name \"Codex Agent\" && git commit -m \"Add hello.txt with collab ok\"'",
+          "commandActions": [
+            {
+              "command": "git config user.email \"codex@local\" && git config user.name \"Codex Agent\" && git commit -m \"Add hello.txt with collab ok\"",
+              "type": "unknown"
+            }
+          ],
+          "cwd": "/private/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/codex-collab-stage6-live/worktrees/ba699868-c2f5-467f-bb93-3cd2df08090a/9a666ce4-f179-463d-a207-5af21b4c4380",
+          "environmentId": "local",
+          "itemId": "call_edb8f895e1ce4a7da99a5d26",
+          "kind": "command",
+          "proposedExecpolicyAmendment": [
+            "git",
+            "config",
+            "user.email",
+            "codex@local"
+          ],
+          "reason": "Setting a local git identity (user.name / user.email) in the task worktree and committing hello.txt. Do you want to allow this?",
+          "startedAtMs": 1792468070387,
+          "threadId": "01a1576b-c456-7ff2-9f89-a70bbc27a094",
+          "turnId": "01a1576b-c47c-7743-aca1-e13d63e6f8e3"
+        }
+      }
+    ],
+    "artifacts": {
+      "full result": {
+        "path": "/private/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/codex-collab-stage6-live/attachments/9a666ce4-f179-463d-a207-5af21b4c4380/1e7a4095-704b-40dc-b7b6-9ef5681d2213.txt",
+        "bytes": 289
+      },
+      "file diff": {
+        "path": "/private/var/folders/9c/t0_s_j511mz57xdjjrw030c80000gn/T/codex-collab-stage6-live/attachments/9a666ce4-f179-463d-a207-5af21b4c4380/27f4d9c2-d853-4e1c-9e78-92b5bb4b7bed.txt",
+        "bytes": 133
+      }
+    }
+  },
+  "diff": {
+    "present": true,
+    "hello": true,
+    "added": true,
+    "bytes": 133
+  },
+  "integrate": {
+    "checks": [
+      {
+        "command": [
+          "/usr/bin/true"
+        ],
+        "stderr": "",
+        "stdout": "",
+        "success": true
+      }
+    ],
+    "head": "aee0946131280bc54b4d93b268a6dcafc5a8d33b",
+    "previousHead": "e63ada7d05114d2eeee91343ecc224f57a6b23a8",
+    "revalidated": true,
+    "status": "integrated",
+    "taskCommit": "9d9b1ce716f1bd219e73a7bce9f945955385cadf"
+  },
+  "verdict": {
+    "real_api_tested": true,
+    "problems": []
+  },
+  "redaction": "端点只留在操作者的状态目录与 Keychain；证据里的 baseUrl 是占位符"
+}

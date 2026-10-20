@@ -154,16 +154,47 @@ def prepare(args):
         print("（该 Agent 已存在，本次只更新了模型/端点/协议。）")
 
 
-def poll_task(host, task_id, timeout, interval, label):
+def poll_task(host, task_id, timeout, interval, label, approve):
+    """Poll a task, answering approval requests when asked to.
+
+    Codex asks the user before it runs a shell command (`approvalPolicy: on-request`). An unattended
+    run either approves each request loudly and records it, or stops and reports it; it never waits
+    silently.
+    """
     deadline = time.monotonic() + timeout
     last = None
+    approvals = []
     while True:
+        for approval in host.call("approval/list"):
+            if approval.get("taskId") != task_id:
+                continue
+            if approval.get("decision") is not None:
+                continue
+            detail = approval.get("params")
+            text = json.dumps(detail, ensure_ascii=False)
+            if not approve:
+                raise HostError(
+                    f"{label} is waiting for approval: {approval['method']} {text}; "
+                    "rerun with --approve or approve it in the TUI"
+                )
+            approvals.append(
+                {"id": approval["id"], "method": approval["method"], "params": detail}
+            )
+            print(f"{label}: approving {approval['method']} {text[:400]}")
+            host.call("approval/decide", {"approvalId": approval["id"], "accept": True})
         task = host.call("task/get", {"taskId": task_id})
         if task["status"] != last:
             print(f"{label}: {task['status']}")
             last = task["status"]
-        if task["status"] in TERMINAL or time.monotonic() >= deadline:
-            return task
+        if task["status"] in TERMINAL:
+            return task, approvals
+        if time.monotonic() >= deadline:
+            print(f"{label}: timed out after {timeout:.0f}s, cancelling")
+            try:
+                host.call("task/cancel", {"taskId": task_id})
+            except HostError as error:
+                print(f"{label}: cancel failed: {error}")
+            return task, approvals
         time.sleep(interval)
 
 
@@ -196,6 +227,10 @@ def verify(args):
     state = args.state
     host = Host(args.core, state, args.codex)
     evidence = {"state": state, "agent": AGENT_ID}
+
+    def redacted(url):
+        """The repository never carries the operator's real endpoint (stage-6 boundary)."""
+        return "https://<provider>/v1" if url.startswith("https://") else "<loopback>"
     problems = []
     try:
         session, agent = find_agent(host, AGENT_ID)
@@ -206,7 +241,7 @@ def verify(args):
         evidence.update(
             {
                 "session": session,
-                "baseUrl": agent["baseUrl"],
+                "baseUrl": redacted(agent["baseUrl"]),
                 "model": agent["model"],
                 "protocol": agent["protocol"],
                 "contextBytes": agent["contextBytes"],
@@ -218,7 +253,9 @@ def verify(args):
         )
 
         probe = host.call("agent/testConnection", {"agentId": AGENT_ID})
-        result = poll_task(host, probe["id"], args.timeout, args.interval, "probe")
+        result, probe_approvals = poll_task(
+            host, probe["id"], args.timeout, args.interval, "probe", args.approve
+        )
         verified = host.call("agent/connectionResult", {"taskId": probe["id"]})
         evidence["probe"] = {
             "taskId": probe["id"],
@@ -226,6 +263,7 @@ def verify(args):
             "verified": verified["verified"],
             "capabilities": verified["capabilities"],
             "result": result.get("result"),
+            "approvals": probe_approvals,
         }
         print(f"probe verified={verified['verified']} caps={verified['capabilities']}")
         if not verified["verified"]:
@@ -240,7 +278,8 @@ def verify(args):
                 "agentId": AGENT_ID,
                 "goal": (
                     "Create a file named hello.txt in the current working directory "
-                    "containing exactly one line: collab ok"
+                    "containing exactly one line: collab ok. Use the file editing tool; "
+                    "no shell command is needed to write it."
                 ),
                 "acceptance": (
                     "hello.txt exists in the task worktree with the single line "
@@ -250,7 +289,9 @@ def verify(args):
                 "coding": True,
             },
         )
-        done = poll_task(host, task["id"], args.timeout, args.interval, "coding task")
+        done, approvals = poll_task(
+            host, task["id"], args.timeout, args.interval, "coding task", args.approve
+        )
         files = read_artifacts(host, session, done["id"])
         diff = files.get("file diff", {})
         evidence["task"] = {
@@ -261,6 +302,7 @@ def verify(args):
             "commit": done.get("commit"),
             "integrationStatus": done.get("integrationStatus"),
             "result": done.get("result"),
+            "approvals": approvals,
             "artifacts": {
                 label: {"path": item["path"], "bytes": item["bytes"]}
                 for label, item in files.items()
@@ -306,6 +348,9 @@ def verify(args):
         "problems": problems,
     }
     print()
+    evidence["redaction"] = (
+        "端点只留在操作者的状态目录与 Keychain；证据里的 baseUrl 是占位符"
+    )
     print(json.dumps(evidence, ensure_ascii=False, indent=2))
     if args.json:
         with open(args.json, "w", encoding="utf-8") as handler:
@@ -334,6 +379,11 @@ def main():
     parser.add_argument("--context-bytes", type=int, default=128000)
     parser.add_argument("--timeout", type=float, default=600)
     parser.add_argument("--interval", type=float, default=2)
+    parser.add_argument(
+        "--approve",
+        action="store_true",
+        help="answer codex command approvals automatically and record them in the evidence",
+    )
     parser.add_argument("--json", help="write the verification evidence here")
     args = parser.parse_args()
     return prepare(args) if args.mode == "prepare" else verify(args)

@@ -1,0 +1,53 @@
+{
+  "agent": "33333333-4444-4555-8666-777777777777",
+  "checks": {
+    "address_rule": {
+      "rejected": {
+        "http_public": {
+          "rejected": true,
+          "error": "agent/configure: {'message': 'use HTTPS, or HTTP on loopback'}"
+        },
+        "query": {
+          "rejected": true,
+          "error": "agent/configure: {'message': 'URL must not contain credentials, query, or fragment'}"
+        },
+        "credentials": {
+          "rejected": true,
+          "error": "agent/configure: {'message': 'URL must not contain credentials, query, or fragment'}"
+        }
+      },
+      "accepted": [
+        "http loopback",
+        "https"
+      ]
+    },
+    "keychain_set": {
+      "saved": true
+    },
+    "upstream_401": {
+      "taskStatus": "failed",
+      "upstreamRequests": 1,
+      "result": "Agent turn failed or interrupted: unexpected status 401 Unauthorized: upstream authentication failed; update this agent's credential, url: http://127.0.0.1:49456/v1/responses"
+    },
+    "upstream_429": {
+      "taskStatus": "failed",
+      "upstreamRequests": 3,
+      "result": "Agent turn failed or interrupted: exceeded retry limit, last status: 429 Too Many Requests"
+    },
+    "transport": {
+      "taskStatus": "failed",
+      "result": "Agent turn failed or interrupted: unexpected status 502 Bad Gateway: upstream transport failed; request not automatically replayed, url: http://127.0.0.1:49477/v1/responses"
+    },
+    "keychain_delete": {
+      "deleted": true
+    },
+    "no_credential": {
+      "taskStatus": "failed",
+      "result": "Keychain credential unavailable"
+    }
+  },
+  "verdict": {
+    "ok": true,
+    "problems": []
+  }
+}

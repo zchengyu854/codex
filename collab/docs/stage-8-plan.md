@@ -1,7 +1,7 @@
 # 阶段 8：真实代码项目验收
 
 日期：2026-10-20（Asia/Shanghai）。
-状态：**8-1、8-2 已实现并通过本地验收；8-3 真实模型场景已准备，尚未运行**。协作场景使用真实 Codex 和本地模拟上游；取消使用 fixture App Server，重启使用持久化崩溃状态模拟。尚无阶段 8 的真实服务商结果。
+状态：**8-1、8-2 已实现并通过本地验收；8-3 场景已准备，首次启动在服务商请求前因主控 Keychain 凭证缺失而失败，尚无真实模型结果**。协作场景使用真实 Codex 和本地模拟上游；取消使用 fixture App Server，重启使用持久化崩溃状态模拟。
 
 ## 阶段目标
 
@@ -118,4 +118,12 @@ python3 collab/scripts/stage8_real.py verify \
 
 `prepare` 仅接受新状态目录；已存在 `repo/.git` 时会拒绝重用，避免覆盖已有场景。真实执行前需对服务商端点、模型、发送的合成项目/提示、请求费用范围及自动命令审批另行明确授权。当前用户此前授权的单次请求属于阶段 7，不能作为阶段 8 请求授权。
 
-本轮未发起付费请求，未把本地 mock 结果标记为真实模型通过。真实运行范围与目标沿用开发计划中的授权要求；失败记录保留，环境错误与产品错误分别说明。
+首次运行记录见 `evidence/stage-8-real.json`：主控任务在 `Keychain credential unavailable` 处失败，未派发 worker；usage 事件为 0，未观察到服务商响应；基线和源仓库均干净。最终 oracle 因无模型集成结果而跳过。该次失败是本机凭证配置问题，不能据此判断服务商或协作实现通过/失败。为继续已授权的验收，在终端运行准备阶段输出的 TUI 命令：
+
+```sh
+collab/target/debug/codex-collab-tui --state /private/tmp/codex-collab-stage8-live \
+  --host collab/target/debug/codex-collab-core \
+  --session 08754067-b329-4d35-9035-ae83a9c170b0
+```
+
+在主控窗格按 `Ctrl+K` 保存服务商凭证，再按 `Ctrl+Q` 退出；工作 Agent 凭证沿用既有 Keychain 项，若 TUI 显示缺失则一并保存。之后重跑 `verify`，使用 `--json collab/evidence/stage-8-real-retry.json` 保留首次失败记录。

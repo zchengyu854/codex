@@ -1,0 +1,109 @@
+{
+  "mode": "real_provider_stage8_project",
+  "real_provider_tested": false,
+  "state": "/private/tmp/codex-collab-stage8-live",
+  "startedAt": "2026-10-21T02:02:20.950663+00:00",
+  "agents": {
+    "77777777-0000-4000-8000-000000000001": {
+      "role": "coordinator",
+      "model": "agnes-3.0-flash",
+      "protocol": "chat_completions",
+      "baseUrl": "https://<provider>/v1"
+    },
+    "77777777-0000-4000-8000-000000000002": {
+      "role": "worker",
+      "model": "agnes-3.0-flash",
+      "protocol": "chat_completions",
+      "baseUrl": "https://<provider>/v1"
+    },
+    "77777777-0000-4000-8000-000000000003": {
+      "role": "worker",
+      "model": "agnes-3.0-flash",
+      "protocol": "chat_completions",
+      "baseUrl": "https://<provider>/v1"
+    }
+  },
+  "problems": [
+    "expected five integrated coding workers, one dropped conflict candidate, and one two-dependency report task",
+    "real conflict, explicit drop, or task-referencing rework was not recorded",
+    "the two-dependency release gate was not observed",
+    "coordinator ended failed: Keychain credential unavailable"
+  ],
+  "session": "08754067-b329-4d35-9035-ae83a9c170b0",
+  "baseline": {
+    "exitCode": 0,
+    "stdout": "",
+    "stderr": "test_empty (test_slug.SlugTests) ... ok\ntest_words (test_slug.SlugTests) ... ok\ntest_empty (test_total.TotalTests) ... ok\ntest_numbers (test_total.TotalTests) ... ok\n\n----------------------------------------------------------------------\nRan 4 tests in 0.000s\n\nOK\n"
+  },
+  "priorTaskIds": [],
+  "dispatch": {
+    "taskId": "a5d685ae-7dc6-4068-8c2f-ceb3d1083055",
+    "goal": "Implement the complete stage-8 synthetic Python project through collaboration tools in this one turn. Do not stop after delegation.\nCreate two independent coding worker tasks: (1) improve slug(text) to trim, lowercase, and collapse all whitespace to hyphens, preserving Unicode; add tests; (2) make total(values) accept integers and integer strings and raise ValueError for invalid strings; add tests. Assign different workers. Then create a coding report task depending on BOTH task ids; it adds report.py, a CLI combining slug and total, and tests. Do not write patches yourself. Wait until dependencies are integrated before the report task runs. For each task, wait, inspect the exact diff, and integrate only after review. Preserve all existing tests. After that scenario passes, create two coding worker tasks from the same current base, assigned to different workers, both changing the single return expression in total.py to equivalent implementations: one uses a generator expression with int(), the other uses map(int, ...). Wait for both, integrate the generator version, then integrate the map version and confirm it conflicts. Explicitly call task/abortIntegration for that conflict, preserving its candidate. Then create a NEW coding task that references the conflicted task id in its goal and changes total.py to the map implementation, review and integrate that new task. Finish only after the project suite passes and every worker task except the deliberately dropped conflict candidate is integrated. Do not write patches yourself."
+  },
+  "timeline": [
+    {
+      "at": 0.0,
+      "task": "a5d685ae",
+      "agent": "…0001",
+      "status": "queued",
+      "integrationStatus": "pending"
+    },
+    {
+      "at": 1.5,
+      "task": "a5d685ae",
+      "agent": "…0001",
+      "status": "failed",
+      "integrationStatus": "pending"
+    }
+  ],
+  "approvals": [],
+  "tasks": {
+    "a5d685ae-7dc6-4068-8c2f-ceb3d1083055": {
+      "acceptance": "The dependency gate held, five coding tasks are integrated, one same-base candidate conflicted and was explicitly dropped, a new task references and repairs it, and trusted project tests pass.",
+      "agentId": "77777777-0000-4000-8000-000000000001",
+      "baseCommit": null,
+      "coding": false,
+      "commit": null,
+      "contextVersion": 0,
+      "createdBy": null,
+      "dependencies": [],
+      "goal": "Implement the complete stage-8 synthetic Python project through collaboration tools in this one turn. Do not stop after delegation.\nCreate two independent coding worker tasks: (1) improve slug(text) to trim, lowercase, and collapse all whitespace to hyphens, preserving Unicode; add tests; (2) make total(values) accept integers and integer strings and raise ValueError for invalid strings; add tests. Assign different workers. Then create a coding report task depending on BOTH task ids; it adds report.py, a CLI combining slug and total, and tests. Do not write patches yourself. Wait until dependencies are integrated before the report task runs. For each task, wait, inspect the exact diff, and integrate only after review. Preserve all existing tests. After that scenario passes, create two coding worker tasks from the same current base, assigned to different workers, both changing the single return expression in total.py to equivalent implementations: one uses a generator expression with int(), the other uses map(int, ...). Wait for both, integrate the generator version, then integrate the map version and confirm it conflicts. Explicitly call task/abortIntegration for that conflict, preserving its candidate. Then create a NEW coding task that references the conflicted task id in its goal and changes total.py to the map implementation, review and integrate that new task. Finish only after the project suite passes and every worker task except the deliberately dropped conflict candidate is integrated. Do not write patches yourself.",
+      "id": "a5d685ae-7dc6-4068-8c2f-ceb3d1083055",
+      "integrationStatus": "pending",
+      "result": "Keychain credential unavailable",
+      "sessionId": "08754067-b329-4d35-9035-ae83a9c170b0",
+      "status": "failed",
+      "worktree": null
+    }
+  },
+  "integrations": [],
+  "usage": [],
+  "completedModelResponses": 0,
+  "conflictRework": {
+    "droppedTask": null,
+    "reworkTasks": [],
+    "reworkIntegrated": false,
+    "conflictRecorded": false,
+    "dropRecorded": false
+  },
+  "gate": {
+    "ok": false
+  },
+  "oracle": {
+    "skipped": "The coordinator failed before any worker tasks were dispatched; no integrated model output was available."
+  },
+  "sourceRepoClean": true,
+  "elapsedSeconds": 1.7,
+  "finishedAt": "2026-10-21T02:02:22.630796+00:00",
+  "verdict": {
+    "ok": false,
+    "problems": [
+      "expected five integrated coding workers, one dropped conflict candidate, and one two-dependency report task",
+      "real conflict, explicit drop, or task-referencing rework was not recorded",
+      "the two-dependency release gate was not observed",
+      "coordinator ended failed: Keychain credential unavailable"
+    ]
+  },
+  "task_dispatched": true,
+  "providerResponseObserved": false
+}

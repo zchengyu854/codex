@@ -99,7 +99,7 @@ def run(args):
     evidence = {
         "mode": "real_provider_stage8_project",
         "real_provider_tested": False,
-        "real_provider_attempted": False,
+        "task_dispatched": False,
         "state": args.state,
         "startedAt": datetime.now(timezone.utc).isoformat(),
         "agents": {},
@@ -143,7 +143,7 @@ def run(args):
                 "coding": False,
             },
         )
-        evidence["real_provider_attempted"] = True
+        evidence["task_dispatched"] = True
         evidence["dispatch"] = {"taskId": dispatched["id"], "goal": goal}
         timeline, approvals = stage7.poll_run(host, session, args, evidence)
         if evidence.get("taskLimitExceeded"):
@@ -178,6 +178,12 @@ def run(args):
         ]
         evidence["completedModelResponses"] = len(evidence["usage"])
         evidence["real_provider_tested"] = bool(evidence["usage"])
+        evidence["providerResponseObserved"] = evidence["real_provider_tested"]
+        coordinator = evidence["tasks"].get(dispatched["id"])
+        if coordinator and coordinator["status"] != "completed":
+            evidence["problems"].append(
+                f"coordinator ended {coordinator['status']}: {coordinator.get('result', '')}"
+            )
         workers = [t for t in evidence["tasks"].values() if t["agentId"] != COORDINATOR]
         dependent = [t for t in workers if len(t["dependencies"]) == 2]
         conflict_ids = {
@@ -269,23 +275,36 @@ def run(args):
                 "the two-dependency release gate was not observed"
             )
         integration = os.path.join(args.state, "worktrees", session, "integration")
-        # Run the fixture's trusted tests in a disposable copy, so deleting tests cannot manufacture a pass.
-        with tempfile.TemporaryDirectory(prefix="stage8-oracle-") as tmp:
-            oracle = os.path.join(tmp, "project")
-            shutil.copytree(integration, oracle, ignore=shutil.ignore_patterns(".git"))
-            shutil.rmtree(os.path.join(oracle, "tests"))
-            for name in ("slug", "total", "report"):
+        # Run the fixture's trusted tests only after the complete model scenario produced an integrated project.
+        if len(integrated) == 5 and len(dropped) == 1:
+            with tempfile.TemporaryDirectory(prefix="stage8-oracle-") as tmp:
+                oracle = os.path.join(tmp, "project")
                 shutil.copytree(
-                    os.path.join(FIXTURE, "changes", name, "tests"),
-                    os.path.join(oracle, "tests"),
-                    dirs_exist_ok=True,
+                    integration, oracle, ignore=shutil.ignore_patterns(".git")
                 )
-            checked = subprocess.run(CHECK, cwd=oracle, capture_output=True, text=True)
+                shutil.rmtree(os.path.join(oracle, "tests"))
+                for name in ("slug", "total", "report"):
+                    shutil.copytree(
+                        os.path.join(FIXTURE, "changes", name, "tests"),
+                        os.path.join(oracle, "tests"),
+                        dirs_exist_ok=True,
+                    )
+                checked = subprocess.run(
+                    CHECK, cwd=oracle, capture_output=True, text=True
+                )
+                evidence["oracle"] = {
+                    "command": CHECK,
+                    "exitCode": checked.returncode,
+                    "stdout": checked.stdout,
+                    "stderr": checked.stderr,
+                }
+            if checked.returncode:
+                evidence["problems"].append(
+                    "trusted fixture oracle rejected the integrated code"
+                )
+        else:
             evidence["oracle"] = {
-                "command": CHECK,
-                "exitCode": checked.returncode,
-                "stdout": checked.stdout,
-                "stderr": checked.stderr,
+                "skipped": "the complete model scenario did not produce its expected integrated tasks"
             }
         evidence["sourceRepoClean"] = (
             subprocess.run(
@@ -297,10 +316,6 @@ def run(args):
             ).stdout
             == ""
         )
-        if checked.returncode:
-            evidence["problems"].append(
-                "trusted fixture oracle rejected the integrated code"
-            )
         if not evidence["sourceRepoClean"]:
             evidence["problems"].append("source repository was modified")
     except (Exception, SystemExit) as error:
